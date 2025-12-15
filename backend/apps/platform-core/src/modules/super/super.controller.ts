@@ -1,5 +1,5 @@
 import { 
-    Controller, Post, Get, Patch, Delete, Body, Param, Query, 
+    Controller, Post, Get, Patch, Delete, Put, Body, Param, Query, 
     UseGuards, Req, HttpException, HttpStatus 
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -273,5 +273,71 @@ export class SuperController {
     @Get('stats')
     async getStats(@Req() req: { user: AccessContext }) {
         return this.superService.getStats(req.user.orgId);
+    }
+
+    // ============================================
+    // REPOSITORY MANAGEMENT (Superuser - All Namespaces)
+    // ============================================
+
+    @Post('repos')
+    async addRepository(
+        @Req() req: { user: AccessContext },
+        @Body() body: { name: string; gitUrl: string; defaultBranch?: string; namespaceIds: string[] }
+    ) {
+        if (!body.namespaceIds || body.namespaceIds.length === 0) {
+            throw new HttpException('At least one namespace is required', HttpStatus.BAD_REQUEST);
+        }
+        return this.superService.addRepository(
+            req.user.orgId,
+            req.user.userId,
+            body.namespaceIds,
+            body
+        );
+    }
+
+    @Get('repos')
+    async getAllRepositories(@Req() req: { user: AccessContext }) {
+        return this.superService.getAllRepositories(req.user.orgId);
+    }
+
+    @Delete('repos/:repoId')
+    async removeRepository(
+        @Req() req: { user: AccessContext },
+        @Param('repoId') repoId: string
+    ) {
+        return this.superService.removeRepository(
+            req.user.orgId,
+            req.user.userId,
+            repoId
+        );
+    }
+
+    @Post('repos/:repoId/scan')
+    async triggerScan(
+        @Req() req: { user: AccessContext },
+        @Param('repoId') repoId: string
+    ) {
+        return this.superService.triggerScan(
+            req.user.orgId,
+            req.user.userId,
+            repoId
+        );
+    }
+
+    @Put('repos/:repoId/namespaces')
+    async updateRepositoryNamespaces(
+        @Req() req: { user: AccessContext },
+        @Param('repoId') repoId: string,
+        @Body() body: { namespaceIds: string[] }
+    ) {
+        if (!body.namespaceIds || body.namespaceIds.length === 0) {
+            throw new HttpException('At least one namespace is required', HttpStatus.BAD_REQUEST);
+        }
+        return this.superService.updateRepositoryNamespaces(
+            req.user.orgId,
+            req.user.userId,
+            repoId,
+            body.namespaceIds
+        );
     }
 }

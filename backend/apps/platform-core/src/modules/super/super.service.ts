@@ -1,5 +1,5 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { PrismaClient, GlobalRole, NamespaceRole, UserStatus, MembershipStatus } from '@prisma/client';
+import { PrismaClient, GlobalRole, NamespaceRole, UserStatus, MembershipStatus, RepoScanStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 
 @Injectable()
@@ -578,5 +578,275 @@ export class SuperService {
             totalRepositories: reposCount,
             activeUsersLast30Days: activeUsers
         };
+    }
+
+    // ============================================
+    // REPOSITORY MANAGEMENT (Superuser - All Namespaces)
+    // ============================================
+
+    async addRepository(
+        orgId: string,
+        addedById: string,
+        namespaceIds: string[],
+        data: { name: string; gitUrl: string; defaultBranch?: string }
+    ) {
+        if (!namespaceIds || namespaceIds.length === 0) {
+            throw new HttpException('At least one namespace is required', HttpStatus.BAD_REQUEST);
+        }
+
+        // Verify all namespaces exist
+        const namespaces = await this.prisma.namespace.findMany({
+            where: { id: { in: namespaceIds }, orgId }
+        });
+
+        if (namespaces.length !== namespaceIds.length) {
+            throw new HttpException('One or more namespaces not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Check for duplicate repo by gitUrl (globally unique per org)
+        const existing = await this.prisma.repository.findFirst({
+            where: { orgId, gitUrl: data.gitUrl }
+        });
+
+        if (existing) {
+            // Repository exists, add it to additional namespaces
+            const existingNamespaceIds = await this.prisma.repositoryNamespace.findMany({
+                where: { orgId, repositoryId: existing.id },
+                select: { namespaceId: true }
+            }).then(rels => rels.map(r => r.namespaceId));
+
+            const newNamespaceIds = namespaceIds.filter(id => !existingNamespaceIds.includes(id));
+            
+            if (newNamespaceIds.length === 0) {
+                throw new HttpException('Repository already exists in all specified namespaces', HttpStatus.CONFLICT);
+            }
+
+            // Add to new namespaces
+            await this.prisma.repositoryNamespace.createMany({
+                data: newNamespaceIds.map(namespaceId => ({
+                    orgId,
+                    repositoryId: existing.id,
+                    namespaceId
+                }))
+            });
+
+            await this.auditService.logRepoAdded(orgId, addedById, existing.id, {
+                name: data.name,
+                gitUrl: data.gitUrl,
+                namespaceIds: newNamespaceIds,
+                namespaceNames: namespaces.filter(n => newNamespaceIds.includes(n.id)).map(n => n.name)
+            });
+
+            return this.prisma.repository.findUnique({
+                where: { id: existing.id },
+                include: {
+                    namespaces: {
+                        include: {
+                            namespace: { select: { id: true, name: true, slug: true } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Create new repository
+        const repo = await this.prisma.repository.create({
+            data: {
+                orgId,
+                name: data.name,
+                gitUrl: data.gitUrl,
+                defaultBranch: data.defaultBranch || 'main',
+                addedById,
+                scanStatus: RepoScanStatus.PENDING,
+                namespaces: {
+                    create: namespaceIds.map(namespaceId => ({
+                        orgId,
+                        namespaceId
+                    }))
+                }
+            },
+            include: {
+                namespaces: {
+                    include: {
+                        namespace: { select: { id: true, name: true, slug: true } }
+                    }
+                }
+            }
+        });
+
+        await this.auditService.logRepoAdded(orgId, addedById, repo.id, {
+            name: data.name,
+            gitUrl: data.gitUrl,
+            namespaceIds,
+            namespaceNames: namespaces.map(n => n.name)
+        });
+
+        return repo;
+    }
+
+    async removeRepository(orgId: string, actorId: string, repoId: string) {
+        const repo = await this.prisma.repository.findFirst({
+            where: { id: repoId, orgId },
+            include: {
+                namespaces: {
+                    include: {
+                        namespace: { select: { id: true, name: true } }
+                    }
+                }
+            }
+        });
+
+        if (!repo) {
+            throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
+        }
+
+        await this.prisma.repository.delete({ where: { id: repoId } });
+
+        await this.auditService.logRepoRemoved(orgId, actorId, repoId, {
+            name: repo.name,
+            gitUrl: repo.gitUrl,
+            namespaceIds: repo.namespaces.map(rn => rn.namespaceId)
+        });
+
+        return { success: true };
+    }
+
+    async triggerScan(orgId: string, actorId: string, repoId: string) {
+        const repo = await this.prisma.repository.findFirst({
+            where: { id: repoId, orgId }
+        });
+
+        if (!repo) {
+            throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Update status to CLONING (actual scanning would be done by a separate service)
+        const updated = await this.prisma.repository.update({
+            where: { id: repoId },
+            data: { scanStatus: RepoScanStatus.CLONING }
+        });
+
+        await this.auditService.log({
+            orgId,
+            actorId,
+            action: 'REPO_SCAN_TRIGGERED',
+            targetType: 'repo',
+            targetId: repoId,
+            metadata: { name: repo.name }
+        });
+
+        return updated;
+    }
+
+    async getAllRepositories(orgId: string) {
+        // Get all repositories across all namespaces (superuser has access to everything)
+        const repositories = await this.prisma.repository.findMany({
+            where: { orgId },
+            include: {
+                addedBy: { select: { id: true, email: true, name: true } },
+                namespaces: {
+                    include: {
+                        namespace: { select: { id: true, name: true, slug: true } }
+                    }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        // Transform to include namespaces array
+        return repositories.map(repo => ({
+            ...repo,
+            namespaces: repo.namespaces.map(rn => rn.namespace)
+        }));
+    }
+
+    async updateRepositoryNamespaces(
+        orgId: string,
+        actorId: string,
+        repoId: string,
+        namespaceIds: string[]
+    ) {
+        if (!namespaceIds || namespaceIds.length === 0) {
+            throw new HttpException('At least one namespace is required', HttpStatus.BAD_REQUEST);
+        }
+
+        // Verify repository exists
+        const repo = await this.prisma.repository.findFirst({
+            where: { id: repoId, orgId }
+        });
+
+        if (!repo) {
+            throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Verify all namespaces exist
+        const namespaces = await this.prisma.namespace.findMany({
+            where: { id: { in: namespaceIds }, orgId }
+        });
+
+        if (namespaces.length !== namespaceIds.length) {
+            throw new HttpException('One or more namespaces not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Get current namespaces
+        const currentRels = await this.prisma.repositoryNamespace.findMany({
+            where: { orgId, repositoryId: repoId }
+        });
+        const currentNamespaceIds = currentRels.map(r => r.namespaceId);
+
+        // Calculate changes
+        const toAdd = namespaceIds.filter(id => !currentNamespaceIds.includes(id));
+        const toRemove = currentNamespaceIds.filter(id => !namespaceIds.includes(id));
+
+        // Perform updates in transaction
+        await this.prisma.$transaction([
+            // Remove old associations
+            ...(toRemove.length > 0 ? [
+                this.prisma.repositoryNamespace.deleteMany({
+                    where: {
+                        orgId,
+                        repositoryId: repoId,
+                        namespaceId: { in: toRemove }
+                    }
+                })
+            ] : []),
+            // Add new associations
+            ...(toAdd.length > 0 ? [
+                this.prisma.repositoryNamespace.createMany({
+                    data: toAdd.map(namespaceId => ({
+                        orgId,
+                        repositoryId: repoId,
+                        namespaceId
+                    }))
+                })
+            ] : [])
+        ]);
+
+        await this.auditService.log({
+            orgId,
+            actorId,
+            action: 'REPO_NAMESPACES_UPDATED',
+            targetType: 'repo',
+            targetId: repoId,
+            metadata: {
+                name: repo.name,
+                gitUrl: repo.gitUrl,
+                previousNamespaceIds: currentNamespaceIds,
+                newNamespaceIds: namespaceIds,
+                added: toAdd,
+                removed: toRemove
+            }
+        });
+
+        return this.prisma.repository.findUnique({
+            where: { id: repoId },
+            include: {
+                namespaces: {
+                    include: {
+                        namespace: { select: { id: true, name: true, slug: true } }
+                    }
+                }
+            }
+        });
     }
 }
