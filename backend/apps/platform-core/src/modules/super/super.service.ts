@@ -1,0 +1,512 @@
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { PrismaClient, GlobalRole, NamespaceRole, UserStatus, MembershipStatus } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+
+@Injectable()
+export class SuperService {
+    private prisma = new PrismaClient();
+
+    constructor(private auditService: AuditService) {}
+
+    // ============================================
+    // NAMESPACE MANAGEMENT
+    // ============================================
+
+    async createNamespace(
+        orgId: string,
+        createdById: string,
+        name: string,
+        description?: string
+    ) {
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+
+        // Check if slug already exists
+        const existing = await this.prisma.namespace.findFirst({
+            where: { orgId, slug }
+        });
+
+        if (existing) {
+            throw new HttpException('Namespace with this name already exists', HttpStatus.CONFLICT);
+        }
+
+        const namespace = await this.prisma.namespace.create({
+            data: {
+                orgId,
+                name,
+                slug,
+                description,
+                createdById
+            }
+        });
+
+        await this.auditService.logNamespaceCreated(orgId, createdById, namespace.id, { name, slug });
+
+        return namespace;
+    }
+
+    async getAllNamespaces(orgId: string) {
+        const namespaces = await this.prisma.namespace.findMany({
+            where: { orgId },
+            include: {
+                _count: {
+                    select: { 
+                        memberships: { where: { status: MembershipStatus.ACTIVE } },
+                        repositories: true 
+                    }
+                },
+                createdBy: {
+                    select: { id: true, email: true, name: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        return namespaces.map(ns => ({
+            id: ns.id,
+            name: ns.name,
+            slug: ns.slug,
+            description: ns.description,
+            membersCount: ns._count.memberships,
+            reposCount: ns._count.repositories,
+            createdBy: ns.createdBy,
+            createdAt: ns.createdAt
+        }));
+    }
+
+    async getNamespace(orgId: string, namespaceId: string) {
+        const namespace = await this.prisma.namespace.findFirst({
+            where: { id: namespaceId, orgId },
+            include: {
+                memberships: {
+                    where: { status: MembershipStatus.ACTIVE },
+                    include: {
+                        user: { select: { id: true, email: true, name: true, picture: true } }
+                    }
+                },
+                repositories: true,
+                createdBy: { select: { id: true, email: true, name: true } }
+            }
+        });
+
+        if (!namespace) {
+            throw new HttpException('Namespace not found', HttpStatus.NOT_FOUND);
+        }
+
+        return namespace;
+    }
+
+    // ============================================
+    // IAM GROUP MAPPINGS
+    // ============================================
+
+    async createIamGroupMapping(
+        orgId: string,
+        actorId: string,
+        mapping: {
+            idp: string;
+            groupId: string;
+            groupName?: string;
+            namespaceId?: string;
+            namespaceRole?: 'ADMIN' | 'USER';
+            grantsGlobalRole?: 'SUPERUSER';
+        }
+    ) {
+        // Validate: either namespace mapping or global role grant
+        if (!mapping.namespaceId && !mapping.grantsGlobalRole) {
+            throw new HttpException(
+                'Must specify either namespaceId or grantsGlobalRole',
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (mapping.namespaceId && mapping.grantsGlobalRole) {
+            throw new HttpException(
+                'Cannot specify both namespaceId and grantsGlobalRole',
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Check for existing mapping
+        const existing = await this.prisma.iamGroupMapping.findFirst({
+            where: { orgId, idp: mapping.idp, groupId: mapping.groupId }
+        });
+
+        if (existing) {
+            throw new HttpException('IAM group mapping already exists', HttpStatus.CONFLICT);
+        }
+
+        const created = await this.prisma.iamGroupMapping.create({
+            data: {
+                orgId,
+                idp: mapping.idp,
+                groupId: mapping.groupId,
+                groupName: mapping.groupName,
+                namespaceId: mapping.namespaceId,
+                namespaceRole: mapping.namespaceRole as NamespaceRole | undefined,
+                grantsGlobalRole: mapping.grantsGlobalRole as GlobalRole | undefined
+            }
+        });
+
+        await this.auditService.logIamMappingCreated(orgId, actorId, created.id, mapping);
+
+        return created;
+    }
+
+    async getIamGroupMappings(orgId: string) {
+        return this.prisma.iamGroupMapping.findMany({
+            where: { orgId },
+            include: {
+                namespace: { select: { id: true, name: true, slug: true } }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+    }
+
+    async deleteIamGroupMapping(orgId: string, actorId: string, mappingId: string) {
+        const mapping = await this.prisma.iamGroupMapping.findFirst({
+            where: { id: mappingId, orgId }
+        });
+
+        if (!mapping) {
+            throw new HttpException('IAM group mapping not found', HttpStatus.NOT_FOUND);
+        }
+
+        await this.prisma.iamGroupMapping.delete({ where: { id: mappingId } });
+
+        await this.auditService.log({
+            orgId,
+            actorId,
+            action: 'IAM_MAPPING_DELETED',
+            targetType: 'iam_mapping',
+            targetId: mappingId
+        });
+
+        return { success: true };
+    }
+
+    // ============================================
+    // NAMESPACE MEMBERSHIP
+    // ============================================
+
+    async assignNamespaceMember(
+        orgId: string,
+        assignedById: string,
+        namespaceId: string,
+        userId: string,
+        role: 'ADMIN' | 'USER'
+    ) {
+        // Validate namespace exists
+        const namespace = await this.prisma.namespace.findFirst({
+            where: { id: namespaceId, orgId }
+        });
+        if (!namespace) {
+            throw new HttpException('Namespace not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Validate user exists
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId, orgId }
+        });
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Upsert membership
+        const membership = await this.prisma.namespaceMembership.upsert({
+            where: {
+                orgId_namespaceId_userId: { orgId, namespaceId, userId }
+            },
+            create: {
+                orgId,
+                namespaceId,
+                userId,
+                namespaceRole: role as NamespaceRole,
+                assignedById,
+                status: MembershipStatus.ACTIVE
+            },
+            update: {
+                namespaceRole: role as NamespaceRole,
+                assignedById,
+                status: MembershipStatus.ACTIVE,
+                assignedAt: new Date()
+            }
+        });
+
+        await this.auditService.logMembershipAssigned(orgId, assignedById, userId, {
+            namespaceId,
+            namespaceName: namespace.name,
+            role
+        });
+
+        return membership;
+    }
+
+    async removeNamespaceMember(
+        orgId: string,
+        actorId: string,
+        namespaceId: string,
+        userId: string
+    ) {
+        const membership = await this.prisma.namespaceMembership.findFirst({
+            where: { orgId, namespaceId, userId }
+        });
+
+        if (!membership) {
+            throw new HttpException('Membership not found', HttpStatus.NOT_FOUND);
+        }
+
+        await this.prisma.namespaceMembership.update({
+            where: { id: membership.id },
+            data: { status: MembershipStatus.REVOKED }
+        });
+
+        await this.auditService.logMembershipRevoked(orgId, actorId, userId, { namespaceId });
+
+        return { success: true };
+    }
+
+    async getNamespaceMembers(orgId: string, namespaceId: string) {
+        const members = await this.prisma.namespaceMembership.findMany({
+            where: { orgId, namespaceId, status: MembershipStatus.ACTIVE },
+            include: {
+                user: {
+                    select: { id: true, email: true, name: true, picture: true, globalRole: true, lastLoginAt: true }
+                },
+                assignedBy: { select: { id: true, email: true, name: true } }
+            },
+            orderBy: { assignedAt: 'desc' }
+        });
+
+        return members;
+    }
+
+    // ============================================
+    // USER MANAGEMENT
+    // ============================================
+
+    async getAllUsers(orgId: string, limit: number = 50, offset: number = 0) {
+        const [users, total] = await Promise.all([
+            this.prisma.user.findMany({
+                where: { orgId },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    picture: true,
+                    globalRole: true,
+                    status: true,
+                    idp: true,
+                    lastLoginAt: true,
+                    createdAt: true,
+                    _count: {
+                        select: { namespaceMemberships: { where: { status: MembershipStatus.ACTIVE } } }
+                    }
+                },
+                orderBy: { createdAt: 'desc' },
+                take: limit,
+                skip: offset
+            }),
+            this.prisma.user.count({ where: { orgId } })
+        ]);
+
+        return {
+            users: users.map(u => ({
+                ...u,
+                namespacesCount: u._count.namespaceMemberships
+            })),
+            total
+        };
+    }
+
+    async getUser(orgId: string, userId: string) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId, orgId },
+            include: {
+                namespaceMemberships: {
+                    where: { status: MembershipStatus.ACTIVE },
+                    include: {
+                        namespace: { select: { id: true, name: true, slug: true } }
+                    }
+                }
+            }
+        });
+
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        return user;
+    }
+
+    async updateUserGlobalRole(
+        orgId: string,
+        actorId: string,
+        userId: string,
+        globalRole: 'SUPERUSER' | 'ADMIN' | 'USER'
+    ) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId, orgId }
+        });
+
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        const previousRole = user.globalRole;
+
+        const updated = await this.prisma.user.update({
+            where: { id: userId },
+            data: { globalRole: globalRole as GlobalRole }
+        });
+
+        await this.auditService.logGlobalRoleChanged(orgId, actorId, userId, {
+            previousRole,
+            newRole: globalRole
+        });
+
+        return updated;
+    }
+
+    async updateUserStatus(
+        orgId: string,
+        actorId: string,
+        userId: string,
+        status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'
+    ) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId, orgId }
+        });
+
+        if (!user) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
+
+        const updated = await this.prisma.user.update({
+            where: { id: userId },
+            data: { status: status as UserStatus }
+        });
+
+        await this.auditService.log({
+            orgId,
+            actorId,
+            action: 'USER_STATUS_CHANGED',
+            targetType: 'user',
+            targetId: userId,
+            metadata: { previousStatus: user.status, newStatus: status }
+        });
+
+        return updated;
+    }
+
+    async canDemoteSuperuser(orgId: string, userId: string): Promise<boolean> {
+        const superuserCount = await this.prisma.user.count({
+            where: {
+                orgId,
+                globalRole: GlobalRole.SUPERUSER,
+                status: UserStatus.ACTIVE
+            }
+        });
+
+        // Can demote if there are more than 1 superuser
+        return superuserCount > 1;
+    }
+
+    // ============================================
+    // AUDIT LOGS
+    // ============================================
+
+    async getAuditLogs(
+        orgId: string,
+        options: { limit?: number; offset?: number; action?: string; actorId?: string }
+    ) {
+        return this.auditService.getLogs(orgId, options);
+    }
+
+    // ============================================
+    // ORGANIZATION
+    // ============================================
+
+    async getOrganization(orgId: string) {
+        const org = await this.prisma.organization.findUnique({
+            where: { id: orgId },
+            include: {
+                _count: {
+                    select: { users: true, namespaces: true }
+                }
+            }
+        });
+
+        if (!org) {
+            throw new HttpException('Organization not found', HttpStatus.NOT_FOUND);
+        }
+
+        return org;
+    }
+
+    async updateOrganization(
+        orgId: string,
+        actorId: string,
+        data: {
+            name?: string;
+            authMode?: 'IAM_GROUPS' | 'SSO_MANAGED' | 'HYBRID';
+            bootstrapSuperuserEmail?: string;
+            bootstrapSuperuserGroupId?: string;
+        }
+    ) {
+        const updated = await this.prisma.organization.update({
+            where: { id: orgId },
+            data: {
+                name: data.name,
+                authMode: data.authMode,
+                bootstrapSuperuserEmail: data.bootstrapSuperuserEmail,
+                bootstrapSuperuserGroupId: data.bootstrapSuperuserGroupId
+            }
+        });
+
+        await this.auditService.log({
+            orgId,
+            actorId,
+            action: 'ORGANIZATION_UPDATED',
+            targetType: 'organization',
+            targetId: orgId,
+            metadata: data
+        });
+
+        return updated;
+    }
+
+    // ============================================
+    // SYSTEM HEALTH & STATS
+    // ============================================
+
+    async getSystemHealth() {
+        return {
+            status: 'UP',
+            timestamp: new Date(),
+            database: 'Connected',
+            version: '1.0.0'
+        };
+    }
+
+    async getStats(orgId: string) {
+        const [usersCount, namespacesCount, reposCount, activeUsers] = await Promise.all([
+            this.prisma.user.count({ where: { orgId } }),
+            this.prisma.namespace.count({ where: { orgId } }),
+            this.prisma.repository.count({ where: { orgId } }),
+            this.prisma.user.count({
+                where: {
+                    orgId,
+                    status: UserStatus.ACTIVE,
+                    lastLoginAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
+                }
+            })
+        ]);
+
+        return {
+            totalUsers: usersCount,
+            totalNamespaces: namespacesCount,
+            totalRepositories: reposCount,
+            activeUsersLast30Days: activeUsers
+        };
+    }
+}

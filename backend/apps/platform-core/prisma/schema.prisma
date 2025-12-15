@@ -1,0 +1,251 @@
+// apps/platform-core/prisma/schema.prisma
+// Senfo Identity + Access Control Schema
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum AuthMode {
+  IAM_GROUPS    // Enterprise: Authorization from IAM/LDAP groups
+  SSO_MANAGED   // SMB: Authorization managed inside Senfo UI
+  HYBRID        // Both: Union of IAM + Senfo-managed; strongest role wins
+}
+
+enum GlobalRole {
+  SUPERUSER     // Platform-wide admin
+  ADMIN         // Can be namespace admin (legacy support)
+  USER          // Regular user
+}
+
+enum NamespaceRole {
+  ADMIN         // Can manage repos within namespace
+  USER          // Can consume capabilities within namespace
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum RepoScanStatus {
+  PENDING
+  CLONING
+  INDEXING
+  COMPLETED
+  ERROR
+}
+
+// ============================================
+// ORGANIZATION (Deployment Boundary)
+// ============================================
+
+model Organization {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  slug        String    @unique
+  type        String    @default("cloud") // "cloud" | "onprem"
+  authMode    AuthMode  @default(SSO_MANAGED)
+  
+  // Bootstrap configuration
+  bootstrapSuperuserEmail   String?   // For SSO-only mode
+  bootstrapSuperuserGroupId String?   // For IAM mode
+  bootstrapCompleted        Boolean   @default(false)
+  
+  // Metadata
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  users               User[]
+  namespaces          Namespace[]
+  iamGroupMappings    IamGroupMapping[]
+  auditLogs           AuditLog[]
+}
+
+// ============================================
+// USER (Identity + Global Role)
+// ============================================
+
+model User {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String      @db.ObjectId
+  org         Organization @relation(fields: [orgId], references: [id])
+  
+  // Identity
+  email       String
+  name        String?
+  picture     String?
+  
+  // IdP Information
+  idp         String?     // "azure_ad" | "okta" | "google" | "github" | "ldap" | "local"
+  idpSub      String?     // IdP stable identifier (sub claim)
+  
+  // Authorization
+  globalRole  GlobalRole  @default(USER)
+  status      UserStatus  @default(ACTIVE)
+  
+  // Timestamps
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  lastLoginAt DateTime?
+  
+  // Relations
+  namespaceMemberships  NamespaceMembership[]
+  createdNamespaces     Namespace[]           @relation("NamespaceCreator")
+  addedRepos            Repository[]          @relation("RepoCreator")
+  assignedMemberships   NamespaceMembership[] @relation("MembershipAssigner")
+  auditLogs             AuditLog[]            @relation("AuditActor")
+  
+  // Indexes
+  @@unique([orgId, email])
+  @@unique([orgId, idpSub])
+  @@index([orgId])
+}
+
+// ============================================
+// NAMESPACE (Workspace Boundary)
+// ============================================
+
+model Namespace {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String    @db.ObjectId
+  org         Organization @relation(fields: [orgId], references: [id])
+  
+  name        String
+  slug        String
+  description String?
+  
+  createdById String    @db.ObjectId
+  createdBy   User      @relation("NamespaceCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  memberships     NamespaceMembership[]
+  iamGroupMappings IamGroupMapping[]
+  repositories    Repository[]
+  
+  @@unique([orgId, slug])
+  @@index([orgId])
+}
+
+// ============================================
+// NAMESPACE MEMBERSHIP (Senfo-Managed Access)
+// ============================================
+
+model NamespaceMembership {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String            @db.ObjectId
+  namespaceId   String            @db.ObjectId
+  namespace     Namespace         @relation(fields: [namespaceId], references: [id])
+  userId        String            @db.ObjectId
+  user          User              @relation(fields: [userId], references: [id])
+  
+  namespaceRole NamespaceRole     @default(USER)
+  status        MembershipStatus  @default(ACTIVE)
+  
+  assignedById  String            @db.ObjectId
+  assignedBy    User              @relation("MembershipAssigner", fields: [assignedById], references: [id])
+  assignedAt    DateTime          @default(now())
+  
+  @@unique([orgId, namespaceId, userId])
+  @@index([orgId, userId])
+  @@index([orgId, namespaceId])
+}
+
+// ============================================
+// IAM GROUP MAPPING (IAM/LDAP-Driven Access)
+// ============================================
+
+model IamGroupMapping {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  orgId           String          @db.ObjectId
+  org             Organization    @relation(fields: [orgId], references: [id])
+  
+  // IAM Group Info
+  idp             String          // "azure_ad" | "okta" | "ldap"
+  groupId         String          // Preferred: GUID from IdP
+  groupName       String?         // Optional: for display
+  
+  // Mapping Target
+  namespaceId     String?         @db.ObjectId
+  namespace       Namespace?      @relation(fields: [namespaceId], references: [id])
+  namespaceRole   NamespaceRole?  // admin | user (for namespace-level mapping)
+  
+  // Or grants global role (for superuser group)
+  grantsGlobalRole GlobalRole?    // "SUPERUSER" for superuser group
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@unique([orgId, idp, groupId])
+  @@index([orgId])
+}
+
+// ============================================
+// REPOSITORY
+// ============================================
+
+model Repository {
+  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String          @db.ObjectId
+  namespaceId   String          @db.ObjectId
+  namespace     Namespace       @relation(fields: [namespaceId], references: [id])
+  
+  name          String
+  gitUrl        String
+  defaultBranch String          @default("main")
+  
+  addedById     String          @db.ObjectId
+  addedBy       User            @relation("RepoCreator", fields: [addedById], references: [id])
+  
+  scanStatus    RepoScanStatus  @default(PENDING)
+  lastScannedAt DateTime?
+  
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  @@index([orgId, namespaceId])
+}
+
+// ============================================
+// AUDIT LOG (Mandatory for Enterprise)
+// ============================================
+
+model AuditLog {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String    @db.ObjectId
+  org         Organization @relation(fields: [orgId], references: [id])
+  
+  actorId     String?   @db.ObjectId
+  actor       User?     @relation("AuditActor", fields: [actorId], references: [id])
+  
+  action      String    // "LOGIN" | "NAMESPACE_CREATED" | "ADMIN_ASSIGNED" | "REPO_ADDED" | etc.
+  targetType  String?   // "user" | "namespace" | "repo" | "membership"
+  targetId    String?
+  
+  metadata    Json?     // Additional context
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([orgId, createdAt])
+  @@index([orgId, actorId])
+  @@index([orgId, action])
+}
