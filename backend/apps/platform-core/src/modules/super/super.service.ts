@@ -284,6 +284,62 @@ export class SuperService {
     // USER MANAGEMENT
     // ============================================
 
+    async createUser(
+        orgId: string,
+        actorId: string,
+        data: {
+            email: string;
+            name?: string;
+            globalRole?: 'SUPERUSER' | 'ADMIN' | 'USER';
+            namespaceId?: string;
+            namespaceRole?: 'ADMIN' | 'USER';
+        }
+    ) {
+        // Check if user already exists
+        const existing = await this.prisma.user.findFirst({
+            where: { orgId, email: data.email }
+        });
+
+        if (existing) {
+            throw new HttpException('User with this email already exists', HttpStatus.CONFLICT);
+        }
+
+        // Create user
+        const user = await this.prisma.user.create({
+            data: {
+                orgId,
+                email: data.email,
+                name: data.name || data.email.split('@')[0],
+                idp: 'invited',
+                idpSub: `invited_${data.email}`,
+                globalRole: (data.globalRole as GlobalRole) || GlobalRole.USER,
+                status: UserStatus.ACTIVE
+            }
+        });
+
+        // If namespace assignment is provided, create membership
+        if (data.namespaceId && data.namespaceRole) {
+            await this.assignNamespaceMember(
+                orgId,
+                actorId,
+                data.namespaceId,
+                user.id,
+                data.namespaceRole
+            );
+        }
+
+        await this.auditService.log({
+            orgId,
+            actorId,
+            action: 'USER_CREATED',
+            targetType: 'user',
+            targetId: user.id,
+            metadata: { email: data.email, globalRole: data.globalRole || 'USER' }
+        });
+
+        return user;
+    }
+
     async getAllUsers(orgId: string, limit: number = 50, offset: number = 0) {
         const [users, total] = await Promise.all([
             this.prisma.user.findMany({

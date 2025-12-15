@@ -127,6 +127,24 @@ export class SuperController {
     // USER MANAGEMENT
     // ============================================
 
+    @Post('users')
+    async createUser(
+        @Req() req: { user: AccessContext },
+        @Body() body: { 
+            email: string; 
+            name?: string; 
+            globalRole?: 'SUPERUSER' | 'ADMIN' | 'USER';
+            namespaceId?: string;
+            namespaceRole?: 'ADMIN' | 'USER';
+        }
+    ) {
+        return this.superService.createUser(
+            req.user.orgId,
+            req.user.userId,
+            body
+        );
+    }
+
     @Get('users')
     async getAllUsers(
         @Req() req: { user: AccessContext },
