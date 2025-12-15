@@ -1,5 +1,5 @@
 import { 
-    Controller, Post, Get, Delete, Body, Param, Query,
+    Controller, Post, Get, Delete, Put, Body, Param, Query,
     UseGuards, Req, HttpException, HttpStatus 
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -17,18 +17,38 @@ export class AdminController {
     // REPOSITORY MANAGEMENT (Admin Only)
     // ============================================
 
-    @Post('namespaces/:namespaceId/repos')
+    @Post('repos')
     @UseGuards(NamespaceAdminGuard)
     async addRepository(
         @Req() req: { user: AccessContext },
-        @Param('namespaceId') namespaceId: string,
-        @Body() body: { name: string; gitUrl: string; defaultBranch?: string }
+        @Body() body: { name: string; gitUrl: string; defaultBranch?: string; namespaceIds: string[] }
     ) {
+        if (!body.namespaceIds || body.namespaceIds.length === 0) {
+            throw new HttpException('At least one namespace is required', HttpStatus.BAD_REQUEST);
+        }
         return this.adminService.addRepository(
             req.user.orgId,
             req.user.userId,
-            namespaceId,
+            body.namespaceIds,
             body
+        );
+    }
+
+    @Put('repos/:repoId/namespaces')
+    @UseGuards(NamespaceAdminGuard)
+    async updateRepositoryNamespaces(
+        @Req() req: { user: AccessContext },
+        @Param('repoId') repoId: string,
+        @Body() body: { namespaceIds: string[] }
+    ) {
+        if (!body.namespaceIds || body.namespaceIds.length === 0) {
+            throw new HttpException('At least one namespace is required', HttpStatus.BAD_REQUEST);
+        }
+        return this.adminService.updateRepositoryNamespaces(
+            req.user.orgId,
+            req.user.userId,
+            repoId,
+            body.namespaceIds
         );
     }
 
@@ -129,5 +149,50 @@ export class AdminController {
             body.email,
             body.role || 'USER'
         );
+    }
+
+    // ============================================
+    // USER MANAGEMENT (Admin - Namespace-scoped)
+    // ============================================
+
+    @Get('users')
+    async getUsersInNamespaces(
+        @Req() req: { user: AccessContext }
+    ) {
+        return this.adminService.getUsersInAdminNamespaces(
+            req.user.orgId,
+            req.user.userId
+        );
+    }
+
+    @Post('namespaces/:namespaceId/users')
+    @UseGuards(NamespaceAdminGuard)
+    async createUserAndAssign(
+        @Req() req: { user: AccessContext },
+        @Param('namespaceId') namespaceId: string,
+        @Body() body: { email: string; name?: string; namespaceRole?: 'ADMIN' | 'USER' }
+    ) {
+        return this.adminService.createUserAndAssign(
+            req.user.orgId,
+            req.user.userId,
+            namespaceId,
+            body.email,
+            body.name,
+            body.namespaceRole || 'USER'
+        );
+    }
+
+    // ============================================
+    // STATISTICS
+    // ============================================
+
+    @Get('stats')
+    async getStats(@Req() req: { user: AccessContext }) {
+        return this.adminService.getStats(req.user.orgId, req.user.userId);
+    }
+
+    @Get('repos')
+    async getAllRepositories(@Req() req: { user: AccessContext }) {
+        return this.adminService.getAllRepositories(req.user.orgId, req.user.userId);
     }
 }

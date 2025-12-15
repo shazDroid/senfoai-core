@@ -85,4 +85,17 @@ export class AuthController {
     async getCurrentUser(@Req() req: { user: AccessContext }) {
         return req.user;
     }
+
+    // ============================================
+    // LOGOUT
+    // ============================================
+
+    @Post('logout')
+    @UseGuards(AuthGuard('jwt'))
+    async logout(@Req() req: { user: AccessContext }) {
+        // Log logout event for audit
+        // Note: Since JWTs are stateless, we can't invalidate them server-side
+        // In production, you might want to implement token blacklisting
+        return { message: 'Logged out successfully' };
+    }
 }

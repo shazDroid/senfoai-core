@@ -354,6 +354,14 @@ export class SuperService {
                     idp: true,
                     lastLoginAt: true,
                     createdAt: true,
+                    namespaceMemberships: {
+                        where: { status: MembershipStatus.ACTIVE },
+                        include: {
+                            namespace: {
+                                select: { id: true, name: true, slug: true }
+                            }
+                        }
+                    },
                     _count: {
                         select: { namespaceMemberships: { where: { status: MembershipStatus.ACTIVE } } }
                     }
@@ -368,7 +376,13 @@ export class SuperService {
         return {
             users: users.map(u => ({
                 ...u,
-                namespacesCount: u._count.namespaceMemberships
+                namespacesCount: u._count.namespaceMemberships,
+                namespaces: u.namespaceMemberships.map(membership => ({
+                    id: membership.namespace.id,
+                    name: membership.namespace.name,
+                    slug: membership.namespace.slug,
+                    role: membership.namespaceRole
+                }))
             })),
             total
         };

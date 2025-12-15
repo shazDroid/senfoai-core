@@ -173,20 +173,25 @@ async function main() {
 
     // 10. Create sample repository (create or skip if gitUrl exists)
     const existingRepo = await prisma.repository.findFirst({
-        where: { orgId: org.id, namespaceId: paymentsNs.id, gitUrl: 'https://github.com/example/payments-service.git' }
+        where: { orgId: org.id, gitUrl: 'https://github.com/example/payments-service.git' }
     });
 
     if (!existingRepo) {
         await prisma.repository.create({
             data: {
                 orgId: org.id,
-                namespaceId: paymentsNs.id,
                 name: 'payments-service',
                 gitUrl: 'https://github.com/example/payments-service.git',
                 defaultBranch: 'main',
                 addedById: adminUser.id,
                 scanStatus: 'COMPLETED',
-                lastScannedAt: new Date()
+                lastScannedAt: new Date(),
+                namespaces: {
+                    create: {
+                        orgId: org.id,
+                        namespaceId: paymentsNs.id
+                    }
+                }
             }
         });
         console.log(`✅ Sample repository created`);

@@ -17,17 +17,34 @@ export class NamespaceAdminGuard implements CanActivate {
             return true;
         }
 
-        // Get namespace ID from header or body
+        // Get namespace ID(s) from header, params, or body
         const namespaceId = 
             request.headers['x-namespace-id'] || 
             request.params?.namespaceId ||
             request.body?.namespaceId;
+        
+        const namespaceIds = request.body?.namespaceIds;
 
-        if (!namespaceId) {
+        // Handle both single namespaceId and multiple namespaceIds
+        if (!namespaceId && (!namespaceIds || namespaceIds.length === 0)) {
             throw new ForbiddenException('Namespace ID required');
         }
 
-        // Check if user has admin access to this namespace
+        // If multiple namespaces are provided, check admin access to all of them
+        if (namespaceIds && namespaceIds.length > 0) {
+            const unauthorizedNamespaces = namespaceIds.filter(nsId => {
+                const membership = user.namespaces.find(ns => ns.id === nsId);
+                return !membership || membership.role !== NamespaceRole.ADMIN;
+            });
+
+            if (unauthorizedNamespaces.length > 0) {
+                throw new ForbiddenException(`Namespace admin access required for all selected namespaces`);
+            }
+
+            return true;
+        }
+
+        // Single namespace check (backward compatibility)
         const membership = user.namespaces.find(ns => ns.id === namespaceId);
 
         if (!membership) {

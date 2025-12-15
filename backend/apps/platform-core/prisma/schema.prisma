@@ -138,7 +138,7 @@ model Namespace {
   // Relations
   memberships     NamespaceMembership[]
   iamGroupMappings IamGroupMapping[]
-  repositories    Repository[]
+  repositories    RepositoryNamespace[]
   
   @@unique([orgId, slug])
   @@index([orgId])
@@ -202,24 +202,45 @@ model IamGroupMapping {
 // ============================================
 
 model Repository {
-  id            String          @id @default(auto()) @map("_id") @db.ObjectId
-  orgId         String          @db.ObjectId
-  namespaceId   String          @db.ObjectId
-  namespace     Namespace       @relation(fields: [namespaceId], references: [id])
+  id            String                @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String                @db.ObjectId
   
   name          String
   gitUrl        String
-  defaultBranch String          @default("main")
+  defaultBranch String                @default("main")
   
-  addedById     String          @db.ObjectId
-  addedBy       User            @relation("RepoCreator", fields: [addedById], references: [id])
+  addedById     String                @db.ObjectId
+  addedBy       User                  @relation("RepoCreator", fields: [addedById], references: [id])
   
-  scanStatus    RepoScanStatus  @default(PENDING)
+  scanStatus    RepoScanStatus        @default(PENDING)
   lastScannedAt DateTime?
   
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
   
+  // Many-to-many relationship with namespaces
+  namespaces    RepositoryNamespace[]
+  
+  @@index([orgId])
+  @@unique([orgId, gitUrl])
+}
+
+// ============================================
+// REPOSITORY-NAMESPACE JUNCTION (Many-to-Many)
+// ============================================
+
+model RepositoryNamespace {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String      @db.ObjectId
+  repositoryId  String      @db.ObjectId
+  repository    Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  namespaceId   String      @db.ObjectId
+  namespace     Namespace   @relation(fields: [namespaceId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime    @default(now())
+  
+  @@unique([orgId, repositoryId, namespaceId])
+  @@index([orgId, repositoryId])
   @@index([orgId, namespaceId])
 }
 

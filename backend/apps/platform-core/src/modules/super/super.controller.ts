@@ -172,8 +172,11 @@ export class SuperController {
         @Param('id') userId: string,
         @Body() body: { globalRole: 'SUPERUSER' | 'ADMIN' | 'USER' }
     ) {
-        // Prevent removing the last superuser
-        if (body.globalRole !== 'SUPERUSER') {
+        // Get current user to check their role
+        const currentUser = await this.superService.getUser(req.user.orgId, userId);
+        
+        // Only prevent demotion if user is currently a superuser and we're changing to non-superuser
+        if (currentUser.globalRole === 'SUPERUSER' && body.globalRole !== 'SUPERUSER') {
             const canDemote = await this.superService.canDemoteSuperuser(
                 req.user.orgId,
                 userId
