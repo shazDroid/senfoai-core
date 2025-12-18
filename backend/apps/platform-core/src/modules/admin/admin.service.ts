@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service';
 export class AdminService {
     private prisma = new PrismaClient();
 
-    constructor(private auditService: AuditService) { }
+    constructor(private auditService: AuditService) {}
 
     // ============================================
     // REPOSITORY MANAGEMENT
@@ -44,7 +44,7 @@ export class AdminService {
             }).then(rels => rels.map(r => r.namespaceId));
 
             const newNamespaceIds = namespaceIds.filter(id => !existingNamespaceIds.includes(id));
-
+            
             if (newNamespaceIds.length === 0) {
                 throw new HttpException('Repository already exists in all specified namespaces', HttpStatus.CONFLICT);
             }
@@ -112,80 +112,6 @@ export class AdminService {
         return repo;
     }
 
-    /**
-     * Request deletion of a repository (sets pendingDeletion flag)
-     * Super user must approve before actual deletion
-     */
-    async requestDeleteRepository(orgId: string, actorId: string, repoId: string) {
-        const repo = await this.prisma.repository.findFirst({
-            where: { id: repoId, orgId },
-            include: {
-                namespaces: {
-                    include: {
-                        namespace: { select: { id: true, name: true } }
-                    }
-                }
-            }
-        });
-
-        if (!repo) {
-            throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
-        }
-
-        // Verify user is admin of at least one namespace the repo belongs to
-        const userAdminNamespaces = await this.prisma.namespaceMembership.findMany({
-            where: {
-                orgId,
-                userId: actorId,
-                namespaceRole: 'ADMIN',
-                status: 'ACTIVE'
-            },
-            select: { namespaceId: true }
-        });
-
-        const userAdminNamespaceIds = userAdminNamespaces.map(m => m.namespaceId);
-        const repoNamespaceIds = repo.namespaces.map(rn => rn.namespaceId);
-
-        const hasAccess = repoNamespaceIds.some(nsId => userAdminNamespaceIds.includes(nsId));
-
-        if (!hasAccess) {
-            throw new HttpException('You must be admin of at least one namespace this repository belongs to', HttpStatus.FORBIDDEN);
-        }
-
-        // Set pending deletion flag
-        await this.prisma.repository.update({
-            where: { id: repoId },
-            data: {
-                // @ts-ignore - pendingDeletion field
-                pendingDeletion: true,
-                deletionRequestedBy: actorId,
-                deletionRequestedAt: new Date()
-            }
-        });
-
-        await this.auditService.log({
-            orgId,
-            actorId,
-            action: 'REPO_DELETION_REQUESTED',
-            targetType: 'repo',
-            targetId: repoId,
-            metadata: {
-                name: repo.name,
-                gitUrl: repo.gitUrl,
-                namespaceIds: repoNamespaceIds
-            }
-        });
-
-        return {
-            success: true,
-            message: 'Deletion request submitted. Awaiting super user approval.',
-            pendingDeletion: true
-        };
-    }
-
-    /**
-     * Actually remove a repository (called by super user after approval)
-     */
     async removeRepository(orgId: string, actorId: string, repoId: string) {
         const repo = await this.prisma.repository.findFirst({
             where: { id: repoId, orgId },
@@ -202,12 +128,6 @@ export class AdminService {
             throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
         }
 
-        // Delete namespace associations first (cascade delete)
-        await this.prisma.repositoryNamespace.deleteMany({
-            where: { repositoryId: repoId }
-        });
-
-        // Then delete the repository
         await this.prisma.repository.delete({ where: { id: repoId } });
 
         await this.auditService.logRepoRemoved(orgId, actorId, repoId, {

@@ -1,6 +1,6 @@
-import {
-    Controller, Post, Get, Patch, Delete, Put, Body, Param, Query,
-    UseGuards, Req, HttpException, HttpStatus
+import { 
+    Controller, Post, Get, Patch, Delete, Put, Body, Param, Query, 
+    UseGuards, Req, HttpException, HttpStatus 
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SuperService } from './super.service';
@@ -10,7 +10,7 @@ import { AccessContext } from '../auth/access-context.service';
 @Controller('super')
 @UseGuards(AuthGuard('jwt'), SuperuserGuard)
 export class SuperController {
-    constructor(private superService: SuperService) { }
+    constructor(private superService: SuperService) {}
 
     // ============================================
     // NAMESPACE MANAGEMENT
@@ -130,9 +130,9 @@ export class SuperController {
     @Post('users')
     async createUser(
         @Req() req: { user: AccessContext },
-        @Body() body: {
-            email: string;
-            name?: string;
+        @Body() body: { 
+            email: string; 
+            name?: string; 
             globalRole?: 'SUPERUSER' | 'ADMIN' | 'USER';
             namespaceId?: string;
             namespaceRole?: 'ADMIN' | 'USER';
@@ -174,7 +174,7 @@ export class SuperController {
     ) {
         // Get current user to check their role
         const currentUser = await this.superService.getUser(req.user.orgId, userId);
-
+        
         // Only prevent demotion if user is currently a superuser and we're changing to non-superuser
         if (currentUser.globalRole === 'SUPERUSER' && body.globalRole !== 'SUPERUSER') {
             const canDemote = await this.superService.canDemoteSuperuser(
@@ -338,39 +338,6 @@ export class SuperController {
             req.user.userId,
             repoId,
             body.namespaceIds
-        );
-    }
-
-    // ============================================
-    // DELETION APPROVAL WORKFLOW
-    // ============================================
-
-    @Get('pending-deletions')
-    async getPendingDeletions(@Req() req: { user: AccessContext }) {
-        return this.superService.getPendingDeletions(req.user.orgId);
-    }
-
-    @Post('repos/:repoId/approve-delete')
-    async approveDeletion(
-        @Req() req: { user: AccessContext },
-        @Param('repoId') repoId: string
-    ) {
-        return this.superService.approveDeletion(
-            req.user.orgId,
-            req.user.userId,
-            repoId
-        );
-    }
-
-    @Post('repos/:repoId/reject-delete')
-    async rejectDeletion(
-        @Req() req: { user: AccessContext },
-        @Param('repoId') repoId: string
-    ) {
-        return this.superService.rejectDeletion(
-            req.user.orgId,
-            req.user.userId,
-            repoId
         );
     }
 }

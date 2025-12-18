@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service';
 export class SuperService {
     private prisma = new PrismaClient();
 
-    constructor(private auditService: AuditService) { }
+    constructor(private auditService: AuditService) {}
 
     // ============================================
     // NAMESPACE MANAGEMENT
@@ -49,9 +49,9 @@ export class SuperService {
             where: { orgId },
             include: {
                 _count: {
-                    select: {
+                    select: { 
                         memberships: { where: { status: MembershipStatus.ACTIVE } },
-                        repositories: true
+                        repositories: true 
                     }
                 },
                 createdBy: {
@@ -616,7 +616,7 @@ export class SuperService {
             }).then(rels => rels.map(r => r.namespaceId));
 
             const newNamespaceIds = namespaceIds.filter(id => !existingNamespaceIds.includes(id));
-
+            
             if (newNamespaceIds.length === 0) {
                 throw new HttpException('Repository already exists in all specified namespaces', HttpStatus.CONFLICT);
             }
@@ -700,12 +700,6 @@ export class SuperService {
             throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
         }
 
-        // Delete namespace associations first (cascade delete)
-        await this.prisma.repositoryNamespace.deleteMany({
-            where: { repositoryId: repoId }
-        });
-
-        // Then delete the repository
         await this.prisma.repository.delete({ where: { id: repoId } });
 
         await this.auditService.logRepoRemoved(orgId, actorId, repoId, {
@@ -854,144 +848,5 @@ export class SuperService {
                 }
             }
         });
-    }
-
-    // ============================================
-    // DELETION APPROVAL WORKFLOW
-    // ============================================
-
-    /**
-     * Get all repositories with pending deletion requests
-     */
-    async getPendingDeletions(orgId: string) {
-        const repos = await this.prisma.repository.findMany({
-            where: {
-                orgId,
-                // @ts-ignore - pendingDeletion field
-                pendingDeletion: true
-            },
-            include: {
-                addedBy: { select: { id: true, email: true, name: true } },
-                namespaces: {
-                    include: {
-                        namespace: { select: { id: true, name: true, slug: true } }
-                    }
-                }
-            },
-            orderBy: { updatedAt: 'desc' }
-        });
-
-        // Get requester info for each repo
-        const result = await Promise.all(repos.map(async (repo: any) => {
-            let requestedBy: { id: string; email: string; name: string | null } | null = null;
-            if (repo.deletionRequestedBy) {
-                requestedBy = await this.prisma.user.findUnique({
-                    where: { id: repo.deletionRequestedBy },
-                    select: { id: true, email: true, name: true }
-                });
-            }
-            return {
-                ...repo,
-                namespaces: repo.namespaces.map((rn: any) => rn.namespace),
-                requestedBy,
-                requestedAt: repo.deletionRequestedAt
-            };
-        }));
-
-        return result;
-    }
-
-    /**
-     * Approve a pending deletion and delete the repository
-     */
-    async approveDeletion(orgId: string, actorId: string, repoId: string) {
-        const repo = await this.prisma.repository.findFirst({
-            where: {
-                id: repoId,
-                orgId,
-                // @ts-ignore
-                pendingDeletion: true
-            },
-            include: {
-                namespaces: {
-                    include: {
-                        namespace: { select: { id: true, name: true } }
-                    }
-                }
-            }
-        });
-
-        if (!repo) {
-            throw new HttpException('Repository not found or no pending deletion', HttpStatus.NOT_FOUND);
-        }
-
-        // Delete namespace associations first
-        await this.prisma.repositoryNamespace.deleteMany({
-            where: { repositoryId: repoId }
-        });
-
-        // Delete the repository
-        await this.prisma.repository.delete({ where: { id: repoId } });
-
-        await this.auditService.log({
-            orgId,
-            actorId,
-            action: 'REPO_DELETION_APPROVED',
-            targetType: 'repo',
-            targetId: repoId,
-            metadata: {
-                name: repo.name,
-                gitUrl: repo.gitUrl,
-                // @ts-ignore
-                requestedBy: repo.deletionRequestedBy,
-                namespaceIds: (repo as any).namespaces.map((rn: any) => rn.namespaceId)
-            }
-        });
-
-        return { success: true, message: 'Deletion approved. Repository has been deleted.' };
-    }
-
-    /**
-     * Reject a pending deletion request
-     */
-    async rejectDeletion(orgId: string, actorId: string, repoId: string) {
-        const repo = await this.prisma.repository.findFirst({
-            where: {
-                id: repoId,
-                orgId,
-                // @ts-ignore
-                pendingDeletion: true
-            }
-        });
-
-        if (!repo) {
-            throw new HttpException('Repository not found or no pending deletion', HttpStatus.NOT_FOUND);
-        }
-
-        // Clear the pending deletion flag
-        await this.prisma.repository.update({
-            where: { id: repoId },
-            data: {
-                // @ts-ignore
-                pendingDeletion: false,
-                deletionRequestedBy: null,
-                deletionRequestedAt: null
-            }
-        });
-
-        await this.auditService.log({
-            orgId,
-            actorId,
-            action: 'REPO_DELETION_REJECTED',
-            targetType: 'repo',
-            targetId: repoId,
-            metadata: {
-                name: repo.name,
-                // @ts-ignore
-                requestedBy: repo.deletionRequestedBy
-            }
-        });
-
-        return { success: true, message: 'Deletion request rejected.' };
     }
 }

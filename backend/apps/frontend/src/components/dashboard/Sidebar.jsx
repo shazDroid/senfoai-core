@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { FiMessageSquare, FiPlus, FiSettings, FiUser, FiMoreHorizontal, FiBox, FiDatabase, FiUsers, FiSun, FiMoon, FiUploadCloud, FiActivity, FiLogOut, FiInbox } from 'react-icons/fi';
+import { FiMessageSquare, FiPlus, FiSettings, FiUser, FiMoreHorizontal, FiBox, FiDatabase, FiUsers, FiSun, FiMoon, FiUploadCloud, FiActivity, FiLogOut } from 'react-icons/fi';
 import { useTheme } from '../../context/ThemeContext';
 import { getUserRole, logout } from '../../utils/auth';
 
@@ -103,7 +103,6 @@ const Sidebar = () => {
             { icon: FiUploadCloud, label: 'Repositories', path: '/dashboard/super/repos' },
         ];
         toolsNav = [
-            { icon: FiInbox, label: 'Approvals', path: '/dashboard/super/approvals' },
             { icon: FiUsers, label: 'All Users', path: '/dashboard/super/users' },
             { icon: FiActivity, label: 'Audit Logs', path: '/dashboard/super/audit' },
             { icon: FiSettings, label: 'System Settings', path: '/dashboard/settings' },
@@ -277,7 +276,7 @@ const Sidebar = () => {
             <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
                 <ThemeToggle />
                 <div ref={userMenuRef} style={{ position: 'relative' }}>
-                    <button
+                    <button 
                         onClick={() => setShowUserMenu(!showUserMenu)}
                         style={{
                             width: '100%',
@@ -313,7 +312,7 @@ const Sidebar = () => {
                         </div>
                         <FiMoreHorizontal size={16} color="#888" />
                     </button>
-
+                    
                     {/* User Menu Dropdown */}
                     {showUserMenu && (
                         <div style={{

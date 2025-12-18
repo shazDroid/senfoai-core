@@ -25,45 +25,6 @@ services:
     volumes:
       - redis_data:/data
 
-  # Neo4J Graph Database for code knowledge graph
-  neo4j:
-    image: neo4j:5-community
-    container_name: senfo_neo4j
-    environment:
-      NEO4J_AUTH: neo4j/supersecurepassword
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: 'true'
-      NEO4J_apoc_import_file_enabled: 'true'
-      NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
-    ports:
-      - "7474:7474" # Browser UI
-      - "7687:7687" # Bolt protocol
-    volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474 || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Zoekt for fast code search (trigram indexing)
-  zoekt:
-    image: sourcegraph/zoekt-webserver:latest
-    container_name: senfo_zoekt
-    ports:
-      - "6070:6070"
-    volumes:
-      - zoekt_data:/data
-      - repos_data:/repos:ro # Read-only access to cloned repos
-    command: [ "-index", "/data/index", "-html_dir", "/data" ]
-
 volumes:
   postgres_data:
   redis_data:
-  neo4j_data:
-  neo4j_logs:
-  zoekt_data:
-  repos_data:
-    # Shared volume for cloned repositories
-
