@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { 
-    FiDatabase, FiUploadCloud, FiGithub, FiFolder, FiGrid, FiList, 
+import {
+    FiDatabase, FiUploadCloud, FiGithub, FiFolder, FiGrid, FiList,
     FiSearch, FiMoreVertical, FiTrash2, FiRefreshCw, FiExternalLink,
     FiCode, FiFileText, FiTag, FiCalendar, FiLayers, FiCheckCircle,
     FiClock, FiXCircle, FiCircle
@@ -36,11 +36,11 @@ const AdminRepositories = () => {
                 debugLog('No authentication token found');
                 return;
             }
-            
+
             const res = await fetch('/api/admin/repos', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
+
             if (res.ok) {
                 const repos = await res.json();
                 // Handle both array and object responses
@@ -90,9 +90,9 @@ const AdminRepositories = () => {
                     setSelectedNamespace(namespacesList[0].id);
                 }
             }
-            } catch (err) {
-                debugLog('Failed to fetch namespaces:', err);
-            }
+        } catch (err) {
+            debugLog('Failed to fetch namespaces:', err);
+        }
     };
 
     const fetchRepositories = async () => {
@@ -104,11 +104,11 @@ const AdminRepositories = () => {
                 setIsLoading(false);
                 return; // Don't clear existing repos if token is missing
             }
-            
+
             const res = await fetch('/api/admin/repos', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
+
             if (res.ok) {
                 const repos = await res.json();
                 // Handle both array and object responses
@@ -191,7 +191,9 @@ const AdminRepositories = () => {
                     name: data.name,
                     gitUrl: data.gitUrl,
                     defaultBranch: data.defaultBranch || 'main',
-                    namespaceIds: data.namespaceIds || [data.namespaceId] // Support both old and new format
+                    namespaceIds: data.namespaceIds || [data.namespaceId], // Support both old and new format
+                    realtimeSyncEnabled: data.realtimeSyncEnabled || false,
+                    syncIntervalMinutes: data.syncIntervalMinutes || 5
                 })
             });
 
@@ -211,6 +213,83 @@ const AdminRepositories = () => {
             throw err; // Re-throw to be handled by modal
         } finally {
             setIsImporting(false);
+        }
+    };
+
+    // Toggle realtime sync for a repository
+    const handleToggleSync = async (repoId, enabled) => {
+        try {
+            const token = localStorage.getItem('senfo-jwt');
+            const res = await fetch(`/api/repos/${repoId}/sync/settings`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ realtimeSyncEnabled: enabled })
+            });
+            if (res.ok) {
+                await fetchRepositories(); // Refresh to show updated state
+            } else {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'Failed to toggle sync');
+            }
+        } catch (err) {
+            debugLog('Toggle sync error:', err);
+            alert(err.message || 'Failed to toggle sync');
+        }
+    };
+
+    // Trigger manual sync for a repository
+    const handleSyncNow = async (repoId) => {
+        try {
+            const token = localStorage.getItem('senfo-jwt');
+            const res = await fetch(`/api/repos/${repoId}/sync/refresh`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.hasNewCommits) {
+                    alert(`Synced! Found new commits. Latest: ${data.latestSha?.substring(0, 7)}`);
+                } else {
+                    alert('Repository is up to date. No new commits.');
+                }
+                await fetchRepositories();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'Failed to sync');
+            }
+        } catch (err) {
+            debugLog('Sync now error:', err);
+            alert(err.message || 'Failed to sync repository');
+        }
+    };
+
+    // Request deletion of a repository (requires super user approval)
+    const handleRequestDelete = async (repoId) => {
+        try {
+            const token = localStorage.getItem('senfo-jwt');
+            const res = await fetch(`/api/admin/repos/${repoId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (res.ok) {
+                alert('Deletion request submitted. Awaiting super user approval.');
+                await fetchRepositories();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'Failed to request deletion');
+            }
+        } catch (err) {
+            debugLog('Delete request error:', err);
+            alert(err.message || 'Failed to request deletion');
         }
     };
 
@@ -236,27 +315,27 @@ const AdminRepositories = () => {
         >
             {/* Header */}
             <motion.div variants={item} style={{ marginBottom: '2rem' }}>
-                <span style={{ 
-                    fontSize: '0.75rem', 
-                    color: 'var(--text-muted)', 
-                    textTransform: 'uppercase', 
-                    letterSpacing: '0.05em' 
+                <span style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
                 }}>
                     Repositories
                 </span>
-                <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between', 
-                    flexWrap: 'wrap', 
-                    gap: '1rem' 
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '1rem'
                 }}>
                     <div>
-                        <h2 style={{ 
-                            fontSize: '1.8rem', 
-                            fontWeight: 'bold', 
-                            marginBottom: '0.25rem', 
-                            color: 'var(--text-main)' 
+                        <h2 style={{
+                            fontSize: '1.8rem',
+                            fontWeight: 'bold',
+                            marginBottom: '0.25rem',
+                            color: 'var(--text-main)'
                         }}>
                             Code Repositories
                         </h2>
@@ -312,28 +391,28 @@ const AdminRepositories = () => {
             </motion.div>
 
             {/* Search and View Toggle */}
-            <motion.div 
+            <motion.div
                 variants={item}
-                style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: '1rem',
                     marginBottom: '1.5rem'
                 }}
             >
                 <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
-                    <FiSearch 
-                        size={18} 
-                        style={{ 
-                            position: 'absolute', 
-                            left: '1rem', 
+                    <FiSearch
+                        size={18}
+                        style={{
+                            position: 'absolute',
+                            left: '1rem',
                             top: '50%',
                             transform: 'translateY(-50%)',
                             color: 'var(--text-muted)',
                             pointerEvents: 'none',
                             zIndex: 1
-                        }} 
+                        }}
                     />
                     <input
                         type="text"
@@ -352,8 +431,8 @@ const AdminRepositories = () => {
                         }}
                     />
                 </div>
-                <div style={{ 
-                    display: 'flex', 
+                <div style={{
+                    display: 'flex',
                     gap: '0.5rem',
                     background: 'var(--bg-subtle)',
                     padding: '0.25rem',
@@ -403,12 +482,12 @@ const AdminRepositories = () => {
 
             {/* Repositories Display */}
             {isLoading ? (
-                <motion.div 
+                <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="glass-panel" 
-                    style={{ 
-                        textAlign: 'center', 
+                    className="glass-panel"
+                    style={{
+                        textAlign: 'center',
                         padding: '4rem 2rem',
                         display: 'flex',
                         flexDirection: 'column',
@@ -417,30 +496,30 @@ const AdminRepositories = () => {
                         gap: '1rem'
                     }}
                 >
-                    <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         gap: '0.75rem',
                         marginBottom: '0.5rem'
                     }}>
-                        <FiRefreshCw 
-                            size={24} 
-                            style={{ 
+                        <FiRefreshCw
+                            size={24}
+                            style={{
                                 animation: 'spin 1s linear infinite',
                                 color: 'var(--primary)'
-                            }} 
+                            }}
                         />
-                        <span style={{ 
-                            fontSize: '1rem', 
+                        <span style={{
+                            fontSize: '1rem',
                             fontWeight: 500,
                             color: 'var(--text-main)'
                         }}>
                             Loading repositories...
                         </span>
                     </div>
-                    <p style={{ 
-                        fontSize: '0.875rem', 
+                    <p style={{
+                        fontSize: '0.875rem',
                         color: 'var(--text-muted)',
                         margin: 0
                     }}>
@@ -448,10 +527,10 @@ const AdminRepositories = () => {
                     </p>
                 </motion.div>
             ) : repositories.length === 0 ? (
-                <motion.div 
+                <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="glass-panel" 
+                    className="glass-panel"
                     style={{ padding: '3rem', textAlign: 'center' }}
                 >
                     <FiDatabase size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
@@ -469,10 +548,10 @@ const AdminRepositories = () => {
                     </button>
                 </motion.div>
             ) : filteredRepos.length === 0 ? (
-                <motion.div 
+                <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="glass-panel" 
+                    className="glass-panel"
                     style={{ padding: '3rem', textAlign: 'center' }}
                 >
                     <FiSearch size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
@@ -520,15 +599,15 @@ const AdminRepositories = () => {
                                 borderRadius: 'var(--radius-md)',
                                 border: '1px solid var(--border-main)'
                             }}>
-                                <FiRefreshCw 
-                                    size={18} 
-                                    style={{ 
+                                <FiRefreshCw
+                                    size={18}
+                                    style={{
                                         animation: 'spin 1s linear infinite',
                                         color: 'var(--primary)'
-                                    }} 
+                                    }}
                                 />
-                                <span style={{ 
-                                    fontSize: '0.875rem', 
+                                <span style={{
+                                    fontSize: '0.875rem',
                                     color: 'var(--text-main)',
                                     fontWeight: 500
                                 }}>
@@ -549,17 +628,20 @@ const AdminRepositories = () => {
                             transition: 'opacity 0.2s ease'
                         }}
                     >
-                    {filteredRepos.map((repo) => (
-                        <RepositoryCard 
-                            key={repo.id} 
-                            repo={repo} 
-                            onRefresh={handleRefresh}
-                            onEditNamespaces={(repo) => {
-                                setEditingRepo(repo);
-                                setShowEditNamespacesModal(true);
-                            }}
-                        />
-                    ))}
+                        {filteredRepos.map((repo) => (
+                            <RepositoryCard
+                                key={repo.id}
+                                repo={repo}
+                                onRefresh={handleRefresh}
+                                onEditNamespaces={(repo) => {
+                                    setEditingRepo(repo);
+                                    setShowEditNamespacesModal(true);
+                                }}
+                                onToggleSync={handleToggleSync}
+                                onSyncNow={handleSyncNow}
+                                onDelete={handleRequestDelete}
+                            />
+                        ))}
                     </motion.div>
                 </div>
             ) : filteredRepos.length > 0 && viewMode === 'list' ? (
@@ -588,15 +670,15 @@ const AdminRepositories = () => {
                                 borderRadius: 'var(--radius-md)',
                                 border: '1px solid var(--border-main)'
                             }}>
-                                <FiRefreshCw 
-                                    size={18} 
-                                    style={{ 
+                                <FiRefreshCw
+                                    size={18}
+                                    style={{
                                         animation: 'spin 1s linear infinite',
                                         color: 'var(--primary)'
-                                    }} 
+                                    }}
                                 />
-                                <span style={{ 
-                                    fontSize: '0.875rem', 
+                                <span style={{
+                                    fontSize: '0.875rem',
                                     color: 'var(--text-main)',
                                     fontWeight: 500
                                 }}>
@@ -622,17 +704,17 @@ const AdminRepositories = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                    {filteredRepos.map((repo) => (
-                                        <RepositoryRow 
-                                            key={repo.id} 
-                                            repo={repo} 
-                                            onRefresh={handleRefresh}
-                                            onEditNamespaces={(repo) => {
-                                                setEditingRepo(repo);
-                                                setShowEditNamespacesModal(true);
-                                            }}
-                                        />
-                                    ))}
+                                        {filteredRepos.map((repo) => (
+                                            <RepositoryRow
+                                                key={repo.id}
+                                                repo={repo}
+                                                onRefresh={handleRefresh}
+                                                onEditNamespaces={(repo) => {
+                                                    setEditingRepo(repo);
+                                                    setShowEditNamespacesModal(true);
+                                                }}
+                                            />
+                                        ))}
                                     </tbody>
                                 </table>
                             </div>
@@ -674,24 +756,24 @@ const AdminRepositories = () => {
                             minWidth: '200px'
                         }}
                     >
-                        <FiRefreshCw 
-                            size={32} 
-                            style={{ 
+                        <FiRefreshCw
+                            size={32}
+                            style={{
                                 animation: 'spin 1s linear infinite',
                                 color: 'var(--primary)'
-                            }} 
+                            }}
                         />
                         <div style={{ textAlign: 'center' }}>
-                            <div style={{ 
-                                fontSize: '1rem', 
+                            <div style={{
+                                fontSize: '1rem',
                                 fontWeight: 500,
                                 color: 'var(--text-main)',
                                 marginBottom: '0.25rem'
                             }}>
                                 Importing repository...
                             </div>
-                            <div style={{ 
-                                fontSize: '0.875rem', 
+                            <div style={{
+                                fontSize: '0.875rem',
                                 color: 'var(--text-muted)'
                             }}>
                                 Please wait
@@ -760,10 +842,12 @@ const AdminRepositories = () => {
 };
 
 // Repository Card Component (Grid View)
-const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
+const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyncNow, onDelete }) => {
     const [showMenu, setShowMenu] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [isTogglingSync, setIsTogglingSync] = useState(false);
+
     // Get namespaces from repo (handle both old and new format)
     const repoNamespaces = repo.namespaces || (repo.namespace ? [repo.namespace] : []);
 
@@ -813,6 +897,45 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
         }
     };
 
+    const handleToggleSync = async () => {
+        if (!onToggleSync) return;
+        setIsTogglingSync(true);
+        setShowMenu(false);
+        try {
+            await onToggleSync(repo.id, !repo.realtimeSyncEnabled);
+        } catch (err) {
+            debugLog('Toggle sync error:', err);
+        } finally {
+            setIsTogglingSync(false);
+        }
+    };
+
+    const handleSyncNow = async () => {
+        if (!onSyncNow) return;
+        setIsSyncing(true);
+        setShowMenu(false);
+        try {
+            await onSyncNow(repo.id);
+        } catch (err) {
+            debugLog('Sync now error:', err);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!onDelete) return;
+        if (!window.confirm(`Are you sure you want to request deletion of "${repo.name}"? This will require super user approval.`)) {
+            return;
+        }
+        setShowMenu(false);
+        try {
+            await onDelete(repo.id);
+        } catch (err) {
+            debugLog('Delete error:', err);
+        }
+    };
+
     return (
         <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -820,11 +943,50 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
             className="glass-panel"
             style={{ padding: '1.5rem', position: 'relative' }}
         >
+            {/* Pending Deletion Badge */}
+            {repo.pendingDeletion && (
+                <div style={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    left: '0.5rem',
+                    padding: '0.25rem 0.5rem',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.7rem',
+                    color: '#ef4444',
+                    fontWeight: 500
+                }}>
+                    🗑️ Deletion Pending
+                </div>
+            )}
+
+            {/* Sync Status Indicator */}
+            {repo.realtimeSyncEnabled && (
+                <div style={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    right: '2.5rem',
+                    padding: '0.25rem 0.5rem',
+                    background: 'rgba(16, 163, 127, 0.15)',
+                    border: '1px solid rgba(16, 163, 127, 0.3)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.7rem',
+                    color: 'var(--primary)',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem'
+                }}>
+                    <FiRefreshCw size={10} /> Auto-sync
+                </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                 <div style={{ flex: 1 }}>
-                    <h3 style={{ 
-                        fontSize: '1.1rem', 
-                        fontWeight: '600', 
+                    <h3 style={{
+                        fontSize: '1.1rem',
+                        fontWeight: '600',
                         color: 'var(--text-main)',
                         marginBottom: '0.25rem',
                         display: 'flex',
@@ -834,8 +996,8 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                         <FiDatabase size={18} style={{ color: 'var(--primary)' }} />
                         {repo.name}
                     </h3>
-                    <p style={{ 
-                        fontSize: '0.75rem', 
+                    <p style={{
+                        fontSize: '0.75rem',
                         color: 'var(--text-muted)',
                         wordBreak: 'break-all',
                         marginBottom: '0.75rem'
@@ -845,9 +1007,9 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                     {/* Namespaces */}
                     {repoNamespaces.length > 0 && (
                         <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
-                            <div style={{ 
-                                fontSize: '0.7rem', 
-                                color: 'var(--text-muted)', 
+                            <div style={{
+                                fontSize: '0.7rem',
+                                color: 'var(--text-muted)',
                                 marginBottom: '0.5rem',
                                 fontWeight: 500,
                                 display: 'flex',
@@ -908,7 +1070,7 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                             borderRadius: '0.5rem',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
                             zIndex: 1000,
-                            minWidth: '150px',
+                            minWidth: '180px',
                             overflow: 'hidden'
                         }}>
                             {onEditNamespaces && (
@@ -937,6 +1099,62 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                                     <FiLayers size={14} /> Edit Namespaces
                                 </button>
                             )}
+
+                            {/* Divider */}
+                            <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.25rem 0' }} />
+
+                            {/* Toggle Sync */}
+                            {onToggleSync && (
+                                <button
+                                    onClick={handleToggleSync}
+                                    disabled={isTogglingSync}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.75rem 1rem',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: isTogglingSync ? 'var(--text-muted)' : 'var(--text-main)',
+                                        cursor: isTogglingSync ? 'wait' : 'pointer',
+                                        textAlign: 'left',
+                                        fontSize: '0.875rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        opacity: isTogglingSync ? 0.6 : 1
+                                    }}
+                                    className="sidebar-link-hover"
+                                >
+                                    <FiRefreshCw size={14} style={isTogglingSync ? { animation: 'spin 1s linear infinite' } : {}} />
+                                    {repo.realtimeSyncEnabled ? 'Disable Auto-sync' : 'Enable Auto-sync'}
+                                </button>
+                            )}
+
+                            {/* Sync Now */}
+                            {onSyncNow && (
+                                <button
+                                    onClick={handleSyncNow}
+                                    disabled={isSyncing}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.75rem 1rem',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: isSyncing ? 'var(--text-muted)' : 'var(--text-main)',
+                                        cursor: isSyncing ? 'wait' : 'pointer',
+                                        textAlign: 'left',
+                                        fontSize: '0.875rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        opacity: isSyncing ? 0.6 : 1
+                                    }}
+                                    className="sidebar-link-hover"
+                                >
+                                    <FiUploadCloud size={14} style={isSyncing ? { animation: 'spin 1s linear infinite' } : {}} />
+                                    {isSyncing ? 'Syncing...' : 'Sync Now'}
+                                </button>
+                            )}
+
                             <button
                                 onClick={async () => {
                                     setIsRefreshing(true);
@@ -967,11 +1185,11 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                                 }}
                                 className="sidebar-link-hover"
                             >
-                                <FiRefreshCw 
-                                    size={14} 
-                                    style={isRefreshing ? { animation: 'spin 1s linear infinite' } : {}} 
-                                /> 
-                                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                                <FiRefreshCw
+                                    size={14}
+                                    style={isRefreshing ? { animation: 'spin 1s linear infinite' } : {}}
+                                />
+                                {isRefreshing ? 'Refreshing...' : 'Refresh List'}
                             </button>
                             <button
                                 onClick={() => {
@@ -995,14 +1213,40 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                             >
                                 <FiExternalLink size={14} /> Open in Git
                             </button>
+
+                            {/* Divider */}
+                            <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.25rem 0' }} />
+
+                            {/* Delete */}
+                            {onDelete && (
+                                <button
+                                    onClick={handleDelete}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.75rem 1rem',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#ef4444',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        fontSize: '0.875rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem'
+                                    }}
+                                    className="sidebar-link-hover"
+                                >
+                                    <FiTrash2 size={14} /> Request Delete
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
             </div>
 
-            <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(2, 1fr)', 
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
                 gap: '0.75rem',
                 marginBottom: '1rem'
             }}>
@@ -1036,9 +1280,9 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
                 </div>
             </div>
 
-            <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'space-between',
                 paddingTop: '1rem',
                 borderTop: '1px solid var(--border-subtle)'
@@ -1070,10 +1314,10 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces }) => {
 // Repository Row Component (List View)
 const RepositoryRow = ({ repo, onRefresh, onEditNamespaces }) => {
     const [isRefreshing, setIsRefreshing] = useState(false);
-    
+
     // Get namespaces from repo (handle both old and new format)
     const repoNamespaces = repo.namespaces || (repo.namespace ? [repo.namespace] : []);
-    
+
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
         const date = new Date(dateString);
@@ -1133,9 +1377,9 @@ const RepositoryRow = ({ repo, onRefresh, onEditNamespaces }) => {
                     {/* Namespaces */}
                     {repoNamespaces.length > 0 && (
                         <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-subtle)' }}>
-                            <div style={{ 
-                                fontSize: '0.65rem', 
-                                color: 'var(--text-muted)', 
+                            <div style={{
+                                fontSize: '0.65rem',
+                                color: 'var(--text-muted)',
                                 marginBottom: '0.375rem',
                                 fontWeight: 500,
                                 display: 'flex',
@@ -1269,9 +1513,9 @@ const RepositoryRow = ({ repo, onRefresh, onEditNamespaces }) => {
                         }}
                         title={isRefreshing ? 'Refreshing...' : 'Refresh repository'}
                     >
-                        <FiRefreshCw 
-                            size={14} 
-                            style={isRefreshing ? { animation: 'spin 1s linear infinite' } : {}} 
+                        <FiRefreshCw
+                            size={14}
+                            style={isRefreshing ? { animation: 'spin 1s linear infinite' } : {}}
                         />
                     </button>
                 </div>
@@ -1280,18 +1524,25 @@ const RepositoryRow = ({ repo, onRefresh, onEditNamespaces }) => {
     );
 };
 
-// Import Modal Component
+// Import Modal Component - Enhanced with branch detection and sync settings
 const ImportModal = ({ source, namespaces, onClose, onImport }) => {
     const [formData, setFormData] = useState({
         namespaceIds: [],
         name: '',
         gitUrl: '',
-        defaultBranch: 'main'
+        defaultBranch: 'main',
+        realtimeSyncEnabled: false,
+        syncIntervalMinutes: 5
     });
     const [isLoading, setIsLoading] = useState(false);
     const [selectedFolder, setSelectedFolder] = useState(null);
     const [error, setError] = useState(null);
     const fileInputRef = useRef(null);
+
+    // Branch detection state
+    const [branches, setBranches] = useState([]);
+    const [isDetectingBranches, setIsDetectingBranches] = useState(false);
+    const [branchDetected, setBranchDetected] = useState(false);
 
     // Reset form when component mounts or source changes
     React.useEffect(() => {
@@ -1299,12 +1550,75 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
             namespaceIds: [],
             name: '',
             gitUrl: '',
-            defaultBranch: 'main'
+            defaultBranch: 'main',
+            realtimeSyncEnabled: false,
+            syncIntervalMinutes: 5
         });
         setSelectedFolder(null);
         setError(null);
         setIsLoading(false);
+        setBranches([]);
+        setBranchDetected(false);
     }, [source]);
+
+    // Detect branches when URL changes (debounced)
+    React.useEffect(() => {
+        const detectBranches = async () => {
+            if (!formData.gitUrl || source !== 'github') return;
+
+            // Simple URL validation
+            if (!formData.gitUrl.includes('github.com') &&
+                !formData.gitUrl.includes('gitlab.com') &&
+                !formData.gitUrl.includes('bitbucket.org')) return;
+
+            setIsDetectingBranches(true);
+            try {
+                const token = localStorage.getItem('senfo-jwt');
+                const res = await fetch('/api/repos/detect-branches', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ gitUrl: formData.gitUrl })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    setBranches(data.branches || []);
+                    setBranchDetected(true);
+                    // Auto-select the default branch
+                    if (data.defaultBranch) {
+                        setFormData(prev => ({ ...prev, defaultBranch: data.defaultBranch }));
+                    }
+                    // Auto-fill name from URL if empty
+                    if (!formData.name) {
+                        const match = formData.gitUrl.match(/\/([^/]+?)(?:\.git)?$/);
+                        if (match) {
+                            setFormData(prev => ({ ...prev, name: match[1] }));
+                        }
+                    }
+                } else {
+                    // Fallback to default branches if detection fails
+                    setBranches([
+                        { name: 'main', isDefault: true },
+                        { name: 'master', isDefault: false }
+                    ]);
+                }
+            } catch (err) {
+                debugLog('Branch detection error:', err);
+                setBranches([
+                    { name: 'main', isDefault: true },
+                    { name: 'master', isDefault: false }
+                ]);
+            } finally {
+                setIsDetectingBranches(false);
+            }
+        };
+
+        const timeoutId = setTimeout(detectBranches, 800);
+        return () => clearTimeout(timeoutId);
+    }, [formData.gitUrl, source]);
 
     const handleNamespaceToggle = (namespaceId) => {
         setFormData(prev => ({
@@ -1318,22 +1632,22 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
-        
+
         if (!formData.namespaceIds || formData.namespaceIds.length === 0) {
             setError('Please select at least one namespace');
             return;
         }
-        
+
         if (!formData.name) {
             setError('Please provide a repository name');
             return;
         }
-        
+
         if (source === 'github' && !formData.gitUrl) {
             setError('Please provide a GitHub URL');
             return;
         }
-        
+
         if (source === 'local' && !formData.gitUrl) {
             setError('Please select a folder');
             return;
@@ -1368,7 +1682,7 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
             zIndex: 10000,
             padding: '1rem'
         }}
-        onClick={onClose}
+            onClick={onClose}
         >
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -1410,7 +1724,7 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
                             border: '1px solid var(--border-main)',
                             borderRadius: 'var(--radius-md)',
                             padding: '0.75rem',
-                            maxHeight: '200px',
+                            maxHeight: '150px',
                             overflowY: 'auto',
                             background: 'var(--bg-subtle)'
                         }}>
@@ -1477,7 +1791,7 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
                         <>
                             <div style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-main)', fontSize: '0.875rem' }}>
-                                    GitHub URL *
+                                    Repository URL *
                                 </label>
                                 <input
                                     type="url"
@@ -1487,18 +1801,118 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
                                     placeholder="https://github.com/username/repo"
                                     required
                                 />
+                                {isDetectingBranches && (
+                                    <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <FiRefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                                        Detecting branches...
+                                    </div>
+                                )}
                             </div>
+
                             <div style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-main)', fontSize: '0.875rem' }}>
-                                    Default Branch
+                                    Branch {branchDetected && <span style={{ color: 'var(--primary)', fontSize: '0.7rem' }}>(Auto-detected)</span>}
                                 </label>
-                                <input
-                                    type="text"
-                                    value={formData.defaultBranch}
-                                    onChange={(e) => setFormData({ ...formData, defaultBranch: e.target.value })}
-                                    className="input-field"
-                                    placeholder="main"
-                                />
+                                {branches.length > 0 ? (
+                                    <select
+                                        value={formData.defaultBranch}
+                                        onChange={(e) => setFormData({ ...formData, defaultBranch: e.target.value })}
+                                        className="input-field"
+                                        style={{ cursor: 'pointer' }}
+                                    >
+                                        {branches.map(branch => (
+                                            <option key={branch.name} value={branch.name}>
+                                                {branch.name} {branch.isDefault ? '(default)' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={formData.defaultBranch}
+                                        onChange={(e) => setFormData({ ...formData, defaultBranch: e.target.value })}
+                                        className="input-field"
+                                        placeholder="main"
+                                    />
+                                )}
+                            </div>
+
+                            {/* Sync Settings Section */}
+                            <div style={{
+                                marginBottom: '1rem',
+                                padding: '1rem',
+                                background: 'var(--bg-subtle)',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--border-subtle)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                                    <div>
+                                        <label style={{ color: 'var(--text-main)', fontSize: '0.875rem', fontWeight: 500 }}>
+                                            Real-time Sync
+                                        </label>
+                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                                            Automatically check for new commits
+                                        </p>
+                                    </div>
+                                    <label style={{
+                                        position: 'relative',
+                                        display: 'inline-block',
+                                        width: '44px',
+                                        height: '24px',
+                                        cursor: 'pointer'
+                                    }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.realtimeSyncEnabled}
+                                            onChange={(e) => setFormData({ ...formData, realtimeSyncEnabled: e.target.checked })}
+                                            style={{ opacity: 0, width: 0, height: 0 }}
+                                        />
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            bottom: 0,
+                                            background: formData.realtimeSyncEnabled ? 'var(--primary)' : 'var(--border-main)',
+                                            borderRadius: '24px',
+                                            transition: 'background 0.2s'
+                                        }}>
+                                            <span style={{
+                                                position: 'absolute',
+                                                content: '',
+                                                height: '18px',
+                                                width: '18px',
+                                                left: formData.realtimeSyncEnabled ? '23px' : '3px',
+                                                bottom: '3px',
+                                                background: 'white',
+                                                borderRadius: '50%',
+                                                transition: 'left 0.2s'
+                                            }} />
+                                        </span>
+                                    </label>
+                                </div>
+
+                                {formData.realtimeSyncEnabled && (
+                                    <div style={{ marginTop: '0.75rem' }}>
+                                        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                            Check every
+                                        </label>
+                                        <select
+                                            value={formData.syncIntervalMinutes}
+                                            onChange={(e) => setFormData({ ...formData, syncIntervalMinutes: parseInt(e.target.value) })}
+                                            className="input-field"
+                                            style={{ cursor: 'pointer', fontSize: '0.875rem' }}
+                                        >
+                                            <option value={1}>1 minute (testing)</option>
+                                            <option value={5}>5 minutes</option>
+                                            <option value={15}>15 minutes</option>
+                                            <option value={30}>30 minutes</option>
+                                            <option value={60}>1 hour</option>
+                                            <option value={360}>6 hours</option>
+                                            <option value={1440}>24 hours</option>
+                                        </select>
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
@@ -1522,8 +1936,8 @@ const ImportModal = ({ source, namespaces, onClose, onImport }) => {
                                         const directoryName = path.split('/')[0];
                                         const folderName = directoryName || 'repository';
                                         setSelectedFolder(folderName);
-                                        setFormData({ 
-                                            ...formData, 
+                                        setFormData({
+                                            ...formData,
                                             gitUrl: `local://${folderName}`,
                                             name: formData.name || folderName
                                         });
@@ -1661,7 +2075,7 @@ const EditNamespacesModal = ({ repo, namespaces, onClose, onSave }) => {
             zIndex: 10000,
             padding: '1rem'
         }}
-        onClick={onClose}
+            onClick={onClose}
         >
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { 
-    FiUsers, FiActivity, FiDatabase, FiServer, FiClock, FiShield, 
+import {
+    FiUsers, FiActivity, FiDatabase, FiServer, FiClock, FiShield,
     FiAlertCircle, FiCheckCircle, FiArrowRight, FiGlobe, FiLayers,
     FiZap, FiTrendingUp, FiRefreshCw, FiSettings, FiFileText, FiUploadCloud
 } from 'react-icons/fi';
@@ -24,7 +24,7 @@ const SuperDashboard = () => {
     const fetchDashboardData = async () => {
         try {
             const token = localStorage.getItem('senfo-jwt');
-            
+
             // Fetch stats
             const statsRes = await fetch('/api/super/stats', {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -71,6 +71,7 @@ const SuperDashboard = () => {
         { icon: FiLayers, label: 'Namespaces', path: '/dashboard/super/namespaces', color: '#3b82f6', desc: 'Manage workspaces' },
         { icon: FiUploadCloud, label: 'Repositories', path: '/dashboard/super/repos', color: '#06b6d4', desc: 'Manage repositories' },
         { icon: FiUsers, label: 'Users', path: '/dashboard/super/users', color: '#8b5cf6', desc: 'User management' },
+        { icon: FiAlertCircle, label: 'Approvals', path: '/dashboard/super/approvals', color: '#ef4444', desc: 'Pending requests' },
         { icon: FiFileText, label: 'Audit Logs', path: '/dashboard/super/audit', color: '#f59e0b', desc: 'View activity' },
         { icon: FiSettings, label: 'Settings', path: '/dashboard/settings', color: '#6b7280', desc: 'System config' },
     ];
@@ -143,7 +144,7 @@ const SuperDashboard = () => {
                             Monitor system health and manage your organization.
                         </p>
                     </div>
-                    <button 
+                    <button
                         onClick={fetchDashboardData}
                         style={{
                             display: 'flex',
@@ -164,7 +165,7 @@ const SuperDashboard = () => {
             </motion.div>
 
             {/* Stats Grid */}
-            <motion.div 
+            <motion.div
                 variants={item}
                 style={{
                     display: 'grid',
@@ -216,14 +217,14 @@ const SuperDashboard = () => {
                     <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                         <FiZap size={12} /> Indexed codebases
                     </div>
-                    <Link 
+                    <Link
                         to="/dashboard/super/repos"
-                        style={{ 
-                            marginTop: '0.5rem', 
-                            fontSize: '0.75rem', 
-                            color: '#06b6d4', 
-                            display: 'flex', 
-                            alignItems: 'center', 
+                        style={{
+                            marginTop: '0.5rem',
+                            fontSize: '0.75rem',
+                            color: '#06b6d4',
+                            display: 'flex',
+                            alignItems: 'center',
                             gap: '0.25rem',
                             textDecoration: 'none'
                         }}
@@ -253,17 +254,17 @@ const SuperDashboard = () => {
                 <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quick Actions</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
                     {quickActions.map((action, index) => (
-                        <Link 
-                            key={index} 
+                        <Link
+                            key={index}
                             to={action.path}
                             style={{ textDecoration: 'none' }}
                         >
-                            <motion.div 
+                            <motion.div
                                 className="glass-panel"
                                 whileHover={{ scale: 1.02, y: -2 }}
                                 whileTap={{ scale: 0.98 }}
-                                style={{ 
-                                    padding: '1.25rem', 
+                                style={{
+                                    padding: '1.25rem',
                                     cursor: 'pointer',
                                     transition: 'box-shadow 0.2s',
                                     display: 'flex',
@@ -271,11 +272,11 @@ const SuperDashboard = () => {
                                     gap: '1rem'
                                 }}
                             >
-                                <div style={{ 
-                                    padding: '0.75rem', 
-                                    background: `${action.color}15`, 
-                                    borderRadius: '0.75rem', 
-                                    color: action.color 
+                                <div style={{
+                                    padding: '0.75rem',
+                                    background: `${action.color}15`,
+                                    borderRadius: '0.75rem',
+                                    color: action.color
                                 }}>
                                     <action.icon size={22} />
                                 </div>
@@ -312,11 +313,11 @@ const SuperDashboard = () => {
                             </div>
                         ) : (
                             recentActivity.map((log, index) => (
-                                <div 
+                                <div
                                     key={log.id || index}
-                                    style={{ 
-                                        display: 'flex', 
-                                        alignItems: 'center', 
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
                                         gap: '0.75rem',
                                         padding: '0.75rem',
                                         background: 'var(--bg-subtle)',
@@ -324,10 +325,10 @@ const SuperDashboard = () => {
                                         border: '1px solid var(--border-subtle)'
                                     }}
                                 >
-                                    <div style={{ 
-                                        padding: '0.5rem', 
-                                        background: `${getActionColor(log.action)}15`, 
-                                        borderRadius: '0.375rem', 
+                                    <div style={{
+                                        padding: '0.5rem',
+                                        background: `${getActionColor(log.action)}15`,
+                                        borderRadius: '0.375rem',
                                         color: getActionColor(log.action),
                                         display: 'flex',
                                         alignItems: 'center',
@@ -363,11 +364,11 @@ const SuperDashboard = () => {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {systemServices.map((service, index) => (
-                            <div 
+                            <div
                                 key={index}
-                                style={{ 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
                                     justifyContent: 'space-between',
                                     padding: '0.875rem 1rem',
                                     background: 'var(--bg-subtle)',
@@ -376,10 +377,10 @@ const SuperDashboard = () => {
                                 }}
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                    <div style={{ 
-                                        width: '8px', 
-                                        height: '8px', 
-                                        borderRadius: '50%', 
+                                    <div style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
                                         background: '#22c55e',
                                         boxShadow: '0 0 8px rgba(34, 197, 94, 0.5)'
                                     }} />
@@ -387,10 +388,10 @@ const SuperDashboard = () => {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{service.latency}</span>
-                                    <span style={{ 
-                                        fontSize: '0.7rem', 
-                                        fontWeight: 600, 
-                                        padding: '0.25rem 0.5rem', 
+                                    <span style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: 600,
+                                        padding: '0.25rem 0.5rem',
                                         borderRadius: '0.25rem',
                                         background: 'rgba(34, 197, 94, 0.15)',
                                         color: '#22c55e',
@@ -403,10 +404,10 @@ const SuperDashboard = () => {
                         ))}
                     </div>
 
-                    <div style={{ 
-                        marginTop: '1rem', 
-                        padding: '0.75rem', 
-                        background: 'rgba(34, 197, 94, 0.05)', 
+                    <div style={{
+                        marginTop: '1rem',
+                        padding: '0.75rem',
+                        background: 'rgba(34, 197, 94, 0.05)',
                         borderRadius: '0.5rem',
                         border: '1px solid rgba(34, 197, 94, 0.1)',
                         display: 'flex',

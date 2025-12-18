@@ -16,6 +16,7 @@ import GlobalNamespaces from './pages/GlobalNamespaces';
 import AllUsers from './pages/AllUsers';
 import AuditLogs from './pages/AuditLogs';
 import SuperRepositories from './pages/SuperRepositories';
+import ApprovalRequests from './pages/ApprovalRequests';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminUsers from './pages/AdminUsers';
 import AdminRepositories from './pages/AdminRepositories';
@@ -55,6 +56,11 @@ function App() {
             <Route path="super/repos" element={
               <RoleGuard requiredRoles={['SUPER_USER']}>
                 <SuperRepositories />
+              </RoleGuard>
+            } />
+            <Route path="super/approvals" element={
+              <RoleGuard requiredRoles={['SUPER_USER']}>
+                <ApprovalRequests />
               </RoleGuard>
             } />
 

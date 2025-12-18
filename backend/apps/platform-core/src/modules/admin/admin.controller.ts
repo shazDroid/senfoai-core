@@ -1,6 +1,6 @@
-import { 
+import {
     Controller, Post, Get, Delete, Put, Body, Param, Query,
-    UseGuards, Req, HttpException, HttpStatus 
+    UseGuards, Req, HttpException, HttpStatus
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
@@ -11,7 +11,7 @@ import { AccessContext } from '../auth/access-context.service';
 @Controller('admin')
 @UseGuards(AuthGuard('jwt'))
 export class AdminController {
-    constructor(private adminService: AdminService) {}
+    constructor(private adminService: AdminService) { }
 
     // ============================================
     // REPOSITORY MANAGEMENT (Admin Only)
@@ -53,12 +53,11 @@ export class AdminController {
     }
 
     @Delete('repos/:repoId')
-    @UseGuards(NamespaceAdminGuard)
-    async removeRepository(
+    async requestDeleteRepository(
         @Req() req: { user: AccessContext },
         @Param('repoId') repoId: string
     ) {
-        return this.adminService.removeRepository(
+        return this.adminService.requestDeleteRepository(
             req.user.orgId,
             req.user.userId,
             repoId

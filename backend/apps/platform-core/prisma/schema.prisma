@@ -215,6 +215,17 @@ model Repository {
   scanStatus    RepoScanStatus        @default(PENDING)
   lastScannedAt DateTime?
   
+  // Sync settings
+  realtimeSyncEnabled  Boolean        @default(false)
+  syncIntervalMinutes  Int            @default(5)
+  lastSyncedSha        String?
+  lastSyncedAt         DateTime?
+  
+  // Deletion approval workflow
+  pendingDeletion       Boolean       @default(false)
+  deletionRequestedBy   String?       @db.ObjectId
+  deletionRequestedAt   DateTime?
+  
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
   
@@ -223,6 +234,33 @@ model Repository {
   
   @@index([orgId])
   @@unique([orgId, gitUrl])
+}
+
+// ============================================
+// FTP LOCATION (for caching)
+// ============================================
+
+model FtpLocation {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String    @db.ObjectId
+  
+  name          String
+  host          String
+  port          Int       @default(21)
+  path          String    @default("/")
+  
+  authType      String    @default("password") // "password" | "key"
+  username      String?
+  encryptedPassword String?
+  encryptedKey  String?
+  
+  isActive      Boolean   @default(true)
+  lastVerified  DateTime?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([orgId])
 }
 
 // ============================================
