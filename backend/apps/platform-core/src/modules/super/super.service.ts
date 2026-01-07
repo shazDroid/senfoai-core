@@ -1,12 +1,18 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaClient, GlobalRole, NamespaceRole, UserStatus, MembershipStatus, RepoScanStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
+import { RepoCheckoutService } from '../indexer/repo-checkout.service';
+import { Neo4jWriterService } from '../indexer/neo4j-writer.service';
 
 @Injectable()
 export class SuperService {
     private prisma = new PrismaClient();
 
-    constructor(private auditService: AuditService) { }
+    constructor(
+        private auditService: AuditService,
+        private checkoutService: RepoCheckoutService,
+        private neo4jWriter: Neo4jWriterService
+    ) { }
 
     // ============================================
     // NAMESPACE MANAGEMENT
@@ -700,12 +706,28 @@ export class SuperService {
             throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
         }
 
-        // Delete namespace associations first (cascade delete)
+        // 1. Delete from Neo4j graph
+        try {
+            await this.neo4jWriter.deleteRepo(repoId);
+        } catch (err: any) {
+            // Log but don't fail if Neo4j deletion fails
+            console.warn(`Failed to delete Neo4j graph for repo ${repoId}: ${err.message}`);
+        }
+
+        // 2. Delete cloned files (temp directory)
+        try {
+            await this.checkoutService.deleteCheckout(repoId);
+        } catch (err: any) {
+            // Log but don't fail if file deletion fails
+            console.warn(`Failed to delete cloned files for repo ${repoId}: ${err.message}`);
+        }
+
+        // 3. Delete namespace associations (cascade delete)
         await this.prisma.repositoryNamespace.deleteMany({
             where: { repositoryId: repoId }
         });
 
-        // Then delete the repository
+        // 4. Delete the repository record from MongoDB
         await this.prisma.repository.delete({ where: { id: repoId } });
 
         await this.auditService.logRepoRemoved(orgId, actorId, repoId, {
@@ -925,12 +947,28 @@ export class SuperService {
             throw new HttpException('Repository not found or no pending deletion', HttpStatus.NOT_FOUND);
         }
 
-        // Delete namespace associations first
+        // 1. Delete from Neo4j graph
+        try {
+            await this.neo4jWriter.deleteRepo(repoId);
+        } catch (err: any) {
+            // Log but don't fail if Neo4j deletion fails
+            console.warn(`Failed to delete Neo4j graph for repo ${repoId}: ${err.message}`);
+        }
+
+        // 2. Delete cloned files (temp directory)
+        try {
+            await this.checkoutService.deleteCheckout(repoId);
+        } catch (err: any) {
+            // Log but don't fail if file deletion fails
+            console.warn(`Failed to delete cloned files for repo ${repoId}: ${err.message}`);
+        }
+
+        // 3. Delete namespace associations
         await this.prisma.repositoryNamespace.deleteMany({
             where: { repositoryId: repoId }
         });
 
-        // Delete the repository
+        // 4. Delete the repository record from MongoDB
         await this.prisma.repository.delete({ where: { id: repoId } });
 
         await this.auditService.log({

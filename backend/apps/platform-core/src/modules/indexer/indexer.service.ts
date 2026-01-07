@@ -144,15 +144,31 @@ export class IndexerService {
 
             if (ftpResult.success && ftpResult.filesUploaded > 0) {
                 this.debug.log(`FTP upload complete: ${ftpResult.filesUploaded} files to ${ftpResult.remotePath}`);
-                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, `Uploaded ${ftpResult.filesUploaded} files`, {
+                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, `Uploaded ${ftpResult.filesUploaded} files to FTP`, {
                     filesUploaded: ftpResult.filesUploaded,
-                    bytesUploaded: ftpResult.bytesUploaded
+                    bytesUploaded: ftpResult.bytesUploaded,
+                    remotePath: ftpResult.remotePath
                 });
             } else if (ftpResult.error) {
-                this.debug.warn(`FTP upload issue: ${ftpResult.error}`);
-                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, 'FTP upload skipped or failed', {});
+                // FTP upload failed - log error and update status
+                const errorMsg = `FTP upload failed: ${ftpResult.error}`;
+                this.debug.error(errorMsg);
+                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, `FTP upload failed: ${ftpResult.error}`, {
+                    error: ftpResult.error
+                });
+                // Don't fail the entire import, but log the error clearly
+                // The repository will still be indexed, but won't be on FTP
+            } else if (!ftpResult.success) {
+                // No files uploaded and no explicit error (likely no FTP config)
+                const errorMsg = 'FTP upload skipped: No FTP configuration found';
+                this.debug.warn(errorMsg);
+                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, 'FTP upload skipped: No configuration', {
+                    error: 'No FTP configuration found'
+                });
             } else {
-                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, 'FTP upload completed', {});
+                // Success but no files uploaded (shouldn't happen, but handle it)
+                this.debug.warn(`FTP upload returned success but no files were uploaded`);
+                this.updateProgress(repoId, 'UPLOADING_TO_FTP', 30, 'FTP upload completed (no files)', {});
             }
 
             // Update status to SCANNING_NAMESPACES

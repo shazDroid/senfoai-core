@@ -59,30 +59,43 @@ export class FtpUploadService {
         } : { found: false });
 
         if (!ftpConfig) {
-            this.debug.warn(`No FTP configuration found for org ${orgId}, skipping upload`);
+            const errorMsg = `No FTP configuration found for org ${orgId}. Please configure FTP in Settings.`;
+            this.debug.error(errorMsg);
+            this.debug.ftpOp('ERROR', { error: errorMsg, orgId });
             return {
-                success: true,
+                success: false,
                 filesUploaded: 0,
                 bytesUploaded: 0,
                 remotePath: '',
-                error: 'No FTP configuration'
+                error: errorMsg
             };
         }
 
         const client = new ftp.Client();
-        client.ftp.verbose = false;
+        client.ftp.verbose = true; // Enable verbose logging for debugging
 
         try {
             this.debug.log(`Connecting to FTP: ${ftpConfig.host}:${ftpConfig.port}`);
-            this.debug.ftpOp('CONNECTING', { host: ftpConfig.host, port: ftpConfig.port });
+            this.debug.log(`  Username: ${ftpConfig.username || 'anonymous'}`);
+            this.debug.log(`  Path: ${ftpConfig.path}`);
+            this.debug.ftpOp('CONNECTING', { 
+                host: ftpConfig.host, 
+                port: ftpConfig.port,
+                username: ftpConfig.username || 'anonymous',
+                path: ftpConfig.path
+            });
 
-            await client.access({
+            // Use passive mode by default (required for most FTP servers behind firewalls, including FileZilla)
+            // The basic-ftp library uses passive mode by default, but we can explicitly set it
+            const accessOptions: any = {
                 host: ftpConfig.host,
                 port: ftpConfig.port,
                 user: ftpConfig.username || 'anonymous',
-                password: ftpConfig.encryptedPassword || '', // In prod, decrypt this
+                password: ftpConfig.encryptedPassword || '',
                 secure: false // Use true for FTPS
-            });
+            };
+
+            await client.access(accessOptions);
 
             this.debug.ftpOp('CONNECTED', { host: ftpConfig.host });
 
@@ -120,17 +133,36 @@ export class FtpUploadService {
                 remotePath
             };
         } catch (error: any) {
-            this.debug.error(`FTP upload failed: ${error.message}`);
-            this.debug.ftpOp('UPLOAD_ERROR', { error: error.message, stack: error.stack });
+            const errorMessage = error.message || 'Unknown FTP error';
+            const errorStack = error.stack || '';
+            this.debug.error(`FTP upload failed: ${errorMessage}`);
+            this.debug.error(`FTP error details: ${JSON.stringify({
+                message: errorMessage,
+                code: error.code,
+                host: ftpConfig.host,
+                port: ftpConfig.port,
+                path: ftpConfig.path
+            })}`);
+            this.debug.ftpOp('UPLOAD_ERROR', { 
+                error: errorMessage, 
+                code: error.code,
+                stack: errorStack,
+                host: ftpConfig.host,
+                port: ftpConfig.port
+            });
             return {
                 success: false,
                 filesUploaded: 0,
                 bytesUploaded: 0,
                 remotePath: '',
-                error: error.message
+                error: `FTP upload failed: ${errorMessage}${error.code ? ` (Code: ${error.code})` : ''}`
             };
         } finally {
-            client.close();
+            try {
+                client.close();
+            } catch (closeError) {
+                // Ignore close errors
+            }
         }
     }
 
@@ -166,11 +198,18 @@ export class FtpUploadService {
                 // Upload file
                 try {
                     const stats = fs.statSync(localPath);
+                    this.debug.log(`Uploading file: ${entry.name} (${stats.size} bytes)`);
                     await client.uploadFrom(localPath, remotePath);
                     filesUploaded++;
                     bytesUploaded += stats.size;
+                    if (filesUploaded % 100 === 0) {
+                        this.debug.log(`Progress: ${filesUploaded} files uploaded...`);
+                    }
                 } catch (err: any) {
-                    this.debug.warn(`Failed to upload ${localPath}: ${err.message}`);
+                    const errorMsg = `Failed to upload ${entry.name}: ${err.message}`;
+                    this.debug.error(errorMsg);
+                    // Continue with other files, but log the error
+                    // Don't throw - allow partial uploads to complete
                 }
             }
         }
