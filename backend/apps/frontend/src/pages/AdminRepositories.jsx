@@ -9,113 +9,14 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { debugLog } from '../utils/debugLog';
 import { useToast } from '../components/Toast';
+import { useRepositoryManagement } from '../hooks/useRepositoryManagement';
 
 const AdminRepositories = () => {
     const navigate = useNavigate();
     const toast = useToast();
-    const [repositories, setRepositories] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [search, setSearch] = useState('');
-    const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
-    const [showImportModal, setShowImportModal] = useState(false);
-    const [importSource, setImportSource] = useState(null); // 'local' or 'github'
-    const [selectedNamespace, setSelectedNamespace] = useState(null);
-    const [namespaces, setNamespaces] = useState([]);
-    const [isImporting, setIsImporting] = useState(false);
-    const [editingRepo, setEditingRepo] = useState(null);
-    const [showEditNamespacesModal, setShowEditNamespacesModal] = useState(false);
-
-    useEffect(() => {
-        fetchRepositories();
-        fetchNamespaces();
-    }, []);
-
-    // Auto-poll for updates when repos are in active import states
-    useEffect(() => {
-        const activeStates = ['CLONING', 'UPLOADING_TO_FTP', 'SCANNING_NAMESPACES', 'PARSING_FILES', 'GENERATING_GRAPH', 'INDEXING', 'SCANNING', 'PENDING'];
-        const hasActiveRepos = repositories.some(repo =>
-            activeStates.includes(repo.scanStatus?.toUpperCase())
-        );
-
-        if (hasActiveRepos) {
-            const pollInterval = setInterval(async () => {
-                try {
-                    const token = localStorage.getItem('senfo-jwt');
-                    if (!token) return;
-
-                    const res = await fetch('/api/admin/repos', {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-
-                    if (res.ok) {
-                        const repos = await res.json();
-                        const reposArray = Array.isArray(repos) ? repos : (repos.repositories || repos.data || []);
-                setRepositories((reposArray || []).map(repo => ({
-                    ...repo,
-                    language: detectLanguage(repo.name, repo.gitUrl),
-                    framework: detectFramework(repo.name, repo.gitUrl),
-                    fileCount: Math.floor(Math.random() * 5000) + 100,
-                    version: '1.0.0',
-                    scanStatus: repo.scanStatus || 'PENDING',
-                    // Preserve progress info if available
-                    progress: repo.progress,
-                    currentStep: repo.currentStep,
-                    details: repo.details
-                })));
-                    }
-                } catch (err) {
-                    debugLog('Polling error:', err);
-                }
-            }, 2000); // Poll every 2 seconds
-
-            return () => clearInterval(pollInterval);
-        }
-    }, [repositories]);
-
-
-    // Wrapper function to ensure refresh works properly
-    const handleRefresh = async () => {
-        try {
-            const token = localStorage.getItem('senfo-jwt');
-            if (!token) {
-                debugLog('No authentication token found');
-                return;
-            }
-
-            const res = await fetch('/api/admin/repos', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (res.ok) {
-                const repos = await res.json();
-                // Handle both array and object responses
-                const reposArray = Array.isArray(repos) ? repos : (repos.repositories || repos.data || []);
-                debugLog('Refreshed repositories:', reposArray.length, reposArray);
-                setRepositories((reposArray || []).map(repo => ({
-                    ...repo,
-                    // Mock data for fields not in schema
-                    language: detectLanguage(repo.name, repo.gitUrl),
-                    framework: detectFramework(repo.name, repo.gitUrl),
-                    fileCount: Math.floor(Math.random() * 5000) + 100, // Mock
-                    version: '1.0.0', // Mock
-                    scanStatus: repo.scanStatus || 'PENDING', // Ensure scanStatus exists
-                    // Preserve progress info if available
-                    progress: repo.progress,
-                    currentStep: repo.currentStep,
-                    details: repo.details
-                })));
-            } else {
-                const errorData = await res.json().catch(() => ({}));
-                debugLog('Failed to refresh repositories:', res.statusText, errorData);
-                // Don't clear repositories on error - keep existing data
-            }
-        } catch (err) {
-            debugLog('Failed to refresh repositories:', err);
-            // Don't clear repositories on error - keep existing data
-        }
-    };
-
-    const fetchNamespaces = async () => {
+    
+    // Fetch namespaces for admins (from users)
+    const fetchAdminNamespaces = async () => {
         try {
             const token = localStorage.getItem('senfo-jwt');
             const res = await fetch('/api/admin/users', {
@@ -132,254 +33,45 @@ const AdminRepositories = () => {
                         }
                     });
                 });
-                const namespacesList = Array.from(uniqueNamespaces.values());
-                setNamespaces(namespacesList);
-                // Set first namespace as default if available
-                if (namespacesList.length > 0 && !selectedNamespace) {
-                    setSelectedNamespace(namespacesList[0].id);
-                }
+                return Array.from(uniqueNamespaces.values());
             }
+            return [];
         } catch (err) {
             debugLog('Failed to fetch namespaces:', err);
+            return [];
         }
     };
 
-    const fetchRepositories = async () => {
-        setIsLoading(true);
-        try {
-            const token = localStorage.getItem('senfo-jwt');
-            if (!token) {
-                debugLog('No authentication token found');
-                setIsLoading(false);
-                return; // Don't clear existing repos if token is missing
-            }
+    // Use common repository management hook
+    const {
+        repositories,
+        isLoading,
+        search,
+        setSearch,
+        viewMode,
+        setViewMode,
+        showImportModal,
+        setShowImportModal,
+        importSource,
+        setImportSource,
+        isImporting,
+        editingRepo,
+        setEditingRepo,
+        showEditNamespacesModal,
+        setShowEditNamespacesModal,
+        namespaces,
+        filteredRepos,
+        fetchRepositories,
+        handleRefresh,
+        handleImport,
+        handleStartImport,
+        handleToggleSync,
+        handleSyncNow,
+        handleUpdateNamespaces,
+        handleImportClick
+    } = useRepositoryManagement('/api/admin/repos', fetchAdminNamespaces);
 
-            const res = await fetch('/api/admin/repos', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (res.ok) {
-                const repos = await res.json();
-                // Handle both array and object responses
-                const reposArray = Array.isArray(repos) ? repos : (repos.repositories || repos.data || []);
-                debugLog('Fetched repositories:', reposArray.length, reposArray);
-                setRepositories((reposArray || []).map(repo => ({
-                    ...repo,
-                    // Mock data for fields not in schema
-                    language: detectLanguage(repo.name, repo.gitUrl),
-                    framework: detectFramework(repo.name, repo.gitUrl),
-                    fileCount: Math.floor(Math.random() * 5000) + 100, // Mock
-                    version: '1.0.0', // Mock
-                    scanStatus: repo.scanStatus || 'PENDING', // Ensure scanStatus exists
-                    // Preserve progress info if available
-                    progress: repo.progress,
-                    currentStep: repo.currentStep,
-                    details: repo.details
-                })));
-            } else {
-                const errorData = await res.json().catch(() => ({}));
-                debugLog('Failed to fetch repositories:', res.statusText, errorData);
-                // Don't clear repositories on error - keep existing data
-            }
-        } catch (err) {
-            debugLog('Failed to fetch repositories:', err);
-            // Don't clear repositories on error - keep existing data
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Mock language detection
-    const detectLanguage = (name, gitUrl) => {
-        const url = gitUrl.toLowerCase();
-        if (url.includes('typescript') || url.includes('ts')) return 'TypeScript';
-        if (url.includes('python')) return 'Python';
-        if (url.includes('java')) return 'Java';
-        if (url.includes('javascript') || url.includes('js')) return 'JavaScript';
-        if (url.includes('go')) return 'Go';
-        if (url.includes('rust')) return 'Rust';
-        if (url.includes('cpp') || url.includes('c++')) return 'C++';
-        return 'Mixed';
-    };
-
-    // Mock framework detection
-    const detectFramework = (name, gitUrl) => {
-        const url = gitUrl.toLowerCase();
-        if (url.includes('react')) return 'React';
-        if (url.includes('vue')) return 'Vue.js';
-        if (url.includes('angular')) return 'Angular';
-        if (url.includes('next')) return 'Next.js';
-        if (url.includes('django')) return 'Django';
-        if (url.includes('flask')) return 'Flask';
-        if (url.includes('express')) return 'Express';
-        if (url.includes('spring')) return 'Spring';
-        return 'None';
-    };
-
-    const filteredRepos = repositories.filter(repo =>
-        repo.name.toLowerCase().includes(search.toLowerCase()) ||
-        repo.gitUrl.toLowerCase().includes(search.toLowerCase())
-    );
-
-    const handleImportClick = (source) => {
-        setImportSource(source);
-        setShowImportModal(true);
-    };
-
-    const handleImport = async (data) => {
-        setIsImporting(true);
-        try {
-            const token = localStorage.getItem('senfo-jwt');
-            if (!token) {
-                throw new Error('Authentication token not found');
-            }
-
-            const res = await fetch(`/api/admin/repos`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: data.name,
-                    gitUrl: data.gitUrl,
-                    defaultBranch: data.defaultBranch || 'main',
-                    namespaceIds: data.namespaceIds || [data.namespaceId], // Support both old and new format
-                    realtimeSyncEnabled: data.realtimeSyncEnabled || false,
-                    syncIntervalMinutes: data.syncIntervalMinutes || 5
-                })
-            });
-
-            const responseData = await res.json().catch(() => ({}));
-
-            if (res.ok) {
-                // Success - refresh repositories and close modal
-                setShowImportModal(false);
-                setImportSource(null);
-                await fetchRepositories(); // This will show loading state
-            } else {
-                // Error response
-                throw new Error(responseData.message || `Failed to import repository: ${res.status} ${res.statusText}`);
-            }
-        } catch (err) {
-            debugLog('Import error:', err);
-            throw err; // Re-throw to be handled by modal
-        } finally {
-            setIsImporting(false);
-        }
-    };
-
-    // Toggle realtime sync for a repository
-    const handleToggleSync = async (repoId, enabled) => {
-        try {
-            const token = localStorage.getItem('senfo-jwt');
-            const res = await fetch(`/api/repos/${repoId}/sync/settings`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ realtimeSyncEnabled: enabled })
-            });
-            if (res.ok) {
-                await fetchRepositories(); // Refresh to show updated state
-            } else {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || 'Failed to toggle sync');
-            }
-        } catch (err) {
-            debugLog('Toggle sync error:', err);
-            toast.error('Sync Toggle Failed', err.message || 'Failed to toggle sync');
-        }
-    };
-
-    // Trigger manual sync for a repository
-    const handleSyncNow = async (repoId) => {
-        try {
-            const token = localStorage.getItem('senfo-jwt');
-            const res = await fetch(`/api/repos/${repoId}/sync/refresh`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.hasNewCommits) {
-                    toast.success('Sync Complete', `Found new commits. Latest: ${data.latestSha?.substring(0, 7)}`);
-                } else {
-                    toast.info('Already Up to Date', 'Repository is up to date. No new commits.');
-                }
-                await fetchRepositories();
-            } else {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || 'Failed to sync');
-            }
-        } catch (err) {
-            debugLog('Sync now error:', err);
-            toast.error('Sync Failed', err.message || 'Failed to sync repository');
-        }
-    };
-
-    // Start import/indexing for a repository
-    const handleStartImport = async (repoId) => {
-        let pollInterval;
-        try {
-            const token = localStorage.getItem('senfo-jwt');
-
-            // Start polling for progress updates
-            pollInterval = setInterval(async () => {
-                try {
-                    const statusRes = await fetch(`/api/repos/${repoId}/index/status`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (statusRes.ok) {
-                        const statusData = await statusRes.json();
-                        // Update local state to reflect progress immediately with detailed info
-                        setRepositories(prevRepos => prevRepos.map(r =>
-                            r.id === repoId ? { 
-                                ...r, 
-                                ...statusData,
-                                // Preserve existing data if new data doesn't have it
-                                progress: statusData.progress !== undefined ? statusData.progress : r.progress,
-                                currentStep: statusData.currentStep || r.currentStep,
-                                details: statusData.details || r.details
-                            } : r
-                        ));
-                    }
-                } catch (e) {
-                    // Ignore polling errors
-                }
-            }, 1000);
-
-            const res = await fetch(`/api/repos/${repoId}/index/run`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            // Stop polling once request completes
-            if (pollInterval) clearInterval(pollInterval);
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || 'Failed to start import');
-            }
-
-            toast.success('Import Complete', 'Repository imported successfully');
-            // Refresh to see the new status
-            await fetchRepositories();
-        } catch (err) {
-            if (pollInterval) clearInterval(pollInterval);
-            debugLog('Start import error:', err);
-            toast.error('Import Failed', err.message || 'Failed to start import');
-            // Refresh to show error state
-            await fetchRepositories();
-        }
-    };
+    // Role-specific: Admin can only request deletion (requires super user approval)
 
     // Request deletion of a repository (requires super user approval)
     const handleRequestDelete = async (repoId) => {
@@ -907,7 +599,15 @@ const AdminRepositories = () => {
                         setShowImportModal(false);
                         setImportSource(null);
                     }}
-                    onImport={handleImport}
+                    onImport={async (data) => {
+                        try {
+                            await handleImport(data);
+                            toast.success('Repository Imported', 'Repository imported successfully');
+                        } catch (err) {
+                            toast.error('Import Failed', err.message || 'Failed to import repository');
+                            throw err;
+                        }
+                    }}
                 />
             )}
 
@@ -920,35 +620,7 @@ const AdminRepositories = () => {
                         setShowEditNamespacesModal(false);
                         setEditingRepo(null);
                     }}
-                    onSave={async (namespaceIds) => {
-                        try {
-                            const token = localStorage.getItem('senfo-jwt');
-                            if (!token) {
-                                throw new Error('Authentication token not found');
-                            }
-
-                            const res = await fetch(`/api/admin/repos/${editingRepo.id}/namespaces`, {
-                                method: 'PUT',
-                                headers: {
-                                    'Authorization': `Bearer ${token}`,
-                                    'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({ namespaceIds })
-                            });
-
-                            if (!res.ok) {
-                                const errorData = await res.json().catch(() => ({}));
-                                throw new Error(errorData.message || 'Failed to update namespaces');
-                            }
-
-                            setShowEditNamespacesModal(false);
-                            setEditingRepo(null);
-                            await fetchRepositories();
-                        } catch (err) {
-                            debugLog('Failed to update repository namespaces:', err);
-                            toast.error('Update Failed', err.message || 'Failed to update namespaces');
-                        }
-                    }}
+                    onSave={handleUpdateNamespaces}
                 />
             )}
         </motion.div>

@@ -130,8 +130,13 @@ export const useRepositoryManagement = (apiBasePath, fetchNamespacesFn) => {
     // Fetch namespaces (role-specific)
     const fetchNamespaces = async () => {
         if (fetchNamespacesFn) {
-            const namespacesList = await fetchNamespacesFn();
-            setNamespaces(namespacesList);
+            try {
+                const namespacesList = await fetchNamespacesFn();
+                setNamespaces(namespacesList || []);
+            } catch (err) {
+                debugLog('Failed to fetch namespaces:', err);
+                setNamespaces([]);
+            }
         }
     };
 
