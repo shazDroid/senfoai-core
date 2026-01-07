@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import { execSync } from 'child_process';
 import { CheckoutResult } from './types';
@@ -9,15 +10,18 @@ import { DebugLogger } from '../../common/utils/debug-logger';
 
 /**
  * RepoCheckoutService
- * Handles cloning, fetching, and checking out repositories to local filesystem
+ * Handles cloning, fetching, and checking out repositories to temporary filesystem
+ * Uses OS temp directory to avoid storing repos in project directory (Docker-friendly)
  */
 @Injectable()
 export class RepoCheckoutService {
     private readonly debug = new DebugLogger('RepoCheckoutService');
     private prisma = new PrismaClient();
 
-    // Base path for all repo checkouts
-    private readonly REPOS_BASE_PATH = process.env.REPOS_BASE_PATH || './repos';
+    // Base path for all repo checkouts - use OS temp directory, not project directory
+    // This ensures repos are not stored in the Docker image
+    private readonly REPOS_BASE_PATH = process.env.REPOS_BASE_PATH || 
+        path.join(os.tmpdir(), 'senfo-repos');
 
     /**
      * Ensure a repository is checked out locally and up-to-date
@@ -472,12 +476,27 @@ export class RepoCheckoutService {
 
     /**
      * Delete a local checkout
+     * This should be called after indexing is complete since repos are stored on FTP
      */
     async deleteCheckout(repoId: string): Promise<void> {
         const repoDir = path.join(this.REPOS_BASE_PATH, repoId);
+        const absoluteRepoDir = path.resolve(repoDir);
+        
+        this.debug.log(`Deleting local checkout for repo ${repoId}`);
+        this.debug.log(`  Repo directory (relative): ${repoDir}`);
+        this.debug.log(`  Repo directory (absolute): ${absoluteRepoDir}`);
+        
         if (fs.existsSync(repoDir)) {
-            fs.rmSync(repoDir, { recursive: true, force: true });
-            this.debug.log(`Deleted checkout for repo ${repoId}`);
+            try {
+                // Use the robust cleanup method
+                await this.cleanupDirectory(repoDir);
+                this.debug.log(`✓ Successfully deleted checkout for repo ${repoId}`);
+            } catch (error: any) {
+                this.debug.error(`Failed to delete checkout for repo ${repoId}: ${error.message}`);
+                throw error;
+            }
+        } else {
+            this.debug.log(`Checkout directory does not exist for repo ${repoId}, nothing to delete`);
         }
     }
 }

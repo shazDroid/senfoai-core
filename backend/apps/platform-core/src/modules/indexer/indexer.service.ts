@@ -237,6 +237,17 @@ export class IndexerService {
                 durationMs: Date.now() - startTime
             });
 
+            // Cleanup: Delete local checkout after successful indexing
+            // Repos are stored on FTP, not in project directory (Docker-friendly)
+            try {
+                this.debug.log(`Cleaning up local checkout for repo ${repoId} (stored on FTP)`);
+                await this.checkoutService.deleteCheckout(repoId);
+                this.debug.log(`Local checkout cleaned up successfully`);
+            } catch (cleanupError: any) {
+                this.debug.warn(`Failed to cleanup local checkout: ${cleanupError.message}`);
+                // Don't fail the entire operation if cleanup fails
+            }
+
             const result: IndexResult = {
                 success: true,
                 repoId,
@@ -253,6 +264,17 @@ export class IndexerService {
 
         } catch (error: any) {
             this.debug.error(`Index failed for repo ${repoId}: ${error.message}`);
+
+            // Cleanup: Delete local checkout even on error
+            // Repos are stored on FTP, not in project directory (Docker-friendly)
+            try {
+                this.debug.log(`Cleaning up local checkout after error for repo ${repoId}`);
+                await this.checkoutService.deleteCheckout(repoId);
+                this.debug.log(`Local checkout cleaned up after error`);
+            } catch (cleanupError: any) {
+                this.debug.warn(`Failed to cleanup local checkout after error: ${cleanupError.message}`);
+                // Don't fail the entire operation if cleanup fails
+            }
 
             // Update error status
             await this.prisma.repository.update({
