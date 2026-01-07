@@ -47,16 +47,39 @@ services:
       timeout: 5s
       retries: 5
 
-  # Zoekt for fast code search (trigram indexing)
-  zoekt:
-    image: sourcegraph/zoekt-webserver:latest
-    container_name: senfo_zoekt
+  # Zoekt Web Server - serves search queries
+  zoekt-webserver:
+    image: sourcegraph/zoekt:latest
+    container_name: senfo_zoekt_webserver
+    volumes:
+      - zoekt_data:/data/index
+      - repos_data:/repos:ro
     ports:
       - "6070:6070"
+    command: [ "zoekt-webserver", "-index", "/data/index", "-listen", ":6070" ]
+
+  # Zoekt Indexer - builds indexes from git repos
+  # Runs zoekt-git-index periodically to index repos in /repos
+  zoekt-indexer:
+    image: sourcegraph/zoekt:latest
+    container_name: senfo_zoekt_indexer
     volumes:
-      - zoekt_data:/data
-      - repos_data:/repos:ro # Read-only access to cloned repos
-    command: [ "-index", "/data/index", "-html_dir", "/data" ]
+      - zoekt_data:/data/index
+      - repos_data:/repos
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        while true; do
+          echo "Scanning for repos to index..."
+          for repo in /repos/*/repo; do
+            if [ -d "$$repo/.git" ]; then
+              echo "Indexing $$repo..."
+              zoekt-git-index -index /data/index $$repo || true
+            fi
+          done
+          echo "Index scan complete. Sleeping 60s..."
+          sleep 60
+        done
 
 volumes:
   postgres_data:
@@ -64,6 +87,4 @@ volumes:
   neo4j_data:
   neo4j_logs:
   zoekt_data:
-  repos_data:
-    # Shared volume for cloned repositories
-
+  repos_data: # Shared volume for cloned repositories

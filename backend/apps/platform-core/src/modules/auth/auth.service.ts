@@ -21,7 +21,7 @@ export class AuthService {
         private jwtService: JwtService,
         private accessContextService: AccessContextService,
         private auditService: AuditService,
-    ) {}
+    ) { }
 
     /**
      * Validate OAuth login (Google, GitHub, Azure AD, Okta)
@@ -160,15 +160,15 @@ export class AuthService {
         }
 
         // Check email-based bootstrap (SSO-only mode)
-        if (org.bootstrapSuperuserEmail && 
+        if (org.bootstrapSuperuserEmail &&
             org.bootstrapSuperuserEmail.toLowerCase() === email.toLowerCase()) {
             this.logger.log(`Bootstrap superuser matched by email: ${email}`);
             return true;
         }
 
         // Check group-based bootstrap (IAM mode)
-        if (org.bootstrapSuperuserGroupId && 
-            idpGroups && 
+        if (org.bootstrapSuperuserGroupId &&
+            idpGroups &&
             idpGroups.includes(org.bootstrapSuperuserGroupId)) {
             this.logger.log(`Bootstrap superuser matched by group: ${org.bootstrapSuperuserGroupId}`);
             return true;
@@ -226,7 +226,7 @@ export class AuthService {
         if (!user) {
             // For dev, create user on the fly
             const isSuperEmail = email === 'super@senfo.ai';
-            const isAdminEmail = email === 'admin@meta.com';
+            const isAdminEmail = email === 'admin@senfo.ai';
 
             user = await this.prisma.user.create({
                 data: {
@@ -235,8 +235,8 @@ export class AuthService {
                     name: email.split('@')[0],
                     idp: 'local',
                     idpSub: email,
-                    globalRole: isSuperEmail ? GlobalRole.SUPERUSER : 
-                               isAdminEmail ? GlobalRole.ADMIN : GlobalRole.USER,
+                    globalRole: isSuperEmail ? GlobalRole.SUPERUSER :
+                        isAdminEmail ? GlobalRole.ADMIN : GlobalRole.USER,
                     status: UserStatus.ACTIVE,
                     lastLoginAt: new Date()
                 }

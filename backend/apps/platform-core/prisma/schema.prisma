@@ -45,7 +45,10 @@ enum MembershipStatus {
 enum RepoScanStatus {
   PENDING
   CLONING
-  INDEXING
+  UPLOADING_TO_FTP
+  SCANNING_NAMESPACES
+  PARSING_FILES
+  GENERATING_GRAPH
   COMPLETED
   ERROR
 }
@@ -214,6 +217,18 @@ model Repository {
   
   scanStatus    RepoScanStatus        @default(PENDING)
   lastScannedAt DateTime?
+  
+  // Local checkout path (e.g., /repos/<repoId>/repo)
+  repoLocalPath         String?
+  
+  // Indexing status (separate from sync)
+  lastIndexedSha        String?
+  lastIndexedAt         DateTime?
+  lastIndexError        String?
+  
+  // Code namespaces/packages detected within repo (JSON array)
+  // [{name: "apps/web", rootPath: "apps/web"}, ...]
+  codeNamespacesJson    String?
   
   // Sync settings
   realtimeSyncEnabled  Boolean        @default(false)

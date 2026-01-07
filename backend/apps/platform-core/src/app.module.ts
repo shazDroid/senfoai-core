@@ -9,6 +9,8 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import { SuperModule } from './modules/super/super.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ReposModule } from './modules/repos/repos.module';
+import { IndexerModule } from './modules/indexer/indexer.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { ReposModule } from './modules/repos/repos.module';
     SuperModule,
     AdminModule,
     ReposModule,  // Repository management with sync
+    IndexerModule,  // Code indexing pipeline
+    SettingsModule,  // System settings (FTP, etc.)
   ],
   controllers: [AppController],
   providers: [

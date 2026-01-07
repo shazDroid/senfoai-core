@@ -5,6 +5,7 @@ import {
     FiRefreshCw, FiAlertTriangle, FiLayers, FiGitBranch,
     FiCalendar, FiInbox
 } from 'react-icons/fi';
+import { useToast } from '../components/Toast';
 
 // Enable debug logging
 const DEBUG = true;
@@ -13,6 +14,7 @@ const debugLog = (...args) => {
 };
 
 const ApprovalRequests = () => {
+    const toast = useToast();
     const [pendingDeletions, setPendingDeletions] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [processingIds, setProcessingIds] = useState(new Set());
@@ -58,14 +60,15 @@ const ApprovalRequests = () => {
                 }
             });
             if (res.ok) {
+                toast.success('Deletion Approved', `Repository "${repoName}" deleted successfully`);
                 await fetchPendingDeletions();
             } else {
                 const err = await res.json().catch(() => ({}));
-                alert(err.message || 'Failed to approve deletion');
+                toast.error('Approval Failed', err.message || 'Failed to approve deletion');
             }
         } catch (err) {
             debugLog('Approve error:', err);
-            alert('Failed to approve deletion');
+            toast.error('Approval Failed', 'An unexpected error occurred');
         } finally {
             setProcessingIds(prev => {
                 const next = new Set(prev);
@@ -91,14 +94,15 @@ const ApprovalRequests = () => {
                 }
             });
             if (res.ok) {
+                toast.info('Deletion Rejected', `Repository "${repoName}" will be kept`);
                 await fetchPendingDeletions();
             } else {
                 const err = await res.json().catch(() => ({}));
-                alert(err.message || 'Failed to reject deletion');
+                toast.error('Rejection Failed', err.message || 'Failed to reject deletion');
             }
         } catch (err) {
             debugLog('Reject error:', err);
-            alert('Failed to reject deletion');
+            toast.error('Rejection Failed', 'An unexpected error occurred');
         } finally {
             setProcessingIds(prev => {
                 const next = new Set(prev);

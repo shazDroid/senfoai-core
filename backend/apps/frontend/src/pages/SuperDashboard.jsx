@@ -68,12 +68,12 @@ const SuperDashboard = () => {
     };
 
     const quickActions = [
-        { icon: FiLayers, label: 'Namespaces', path: '/dashboard/super/namespaces', color: '#3b82f6', desc: 'Manage workspaces' },
-        { icon: FiUploadCloud, label: 'Repositories', path: '/dashboard/super/repos', color: '#06b6d4', desc: 'Manage repositories' },
-        { icon: FiUsers, label: 'Users', path: '/dashboard/super/users', color: '#8b5cf6', desc: 'User management' },
-        { icon: FiAlertCircle, label: 'Approvals', path: '/dashboard/super/approvals', color: '#ef4444', desc: 'Pending requests' },
-        { icon: FiFileText, label: 'Audit Logs', path: '/dashboard/super/audit', color: '#f59e0b', desc: 'View activity' },
-        { icon: FiSettings, label: 'Settings', path: '/dashboard/settings', color: '#6b7280', desc: 'System config' },
+        { icon: FiLayers, label: 'Namespaces', path: '/dashboard/super/namespaces', color: '#3b82f6', desc: 'Workspaces' },
+        { icon: FiUploadCloud, label: 'Repositories', path: '/dashboard/super/repos', color: '#06b6d4', desc: 'Codebases' },
+        { icon: FiUsers, label: 'Users', path: '/dashboard/super/users', color: '#8b5cf6', desc: 'Management' },
+        { icon: FiAlertCircle, label: 'Approvals', path: '/dashboard/super/approvals', color: '#ef4444', desc: 'Requests' },
+        { icon: FiFileText, label: 'Audit Logs', path: '/dashboard/super/audit', color: '#f59e0b', desc: 'Activity' },
+        { icon: FiSettings, label: 'Settings', path: '/dashboard/settings', color: '#6b7280', desc: 'Config' },
     ];
 
     const systemServices = [

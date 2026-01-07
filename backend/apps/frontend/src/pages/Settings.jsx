@@ -1,11 +1,128 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FiSettings, FiDatabase, FiCpu, FiUser, FiSave, FiCheck, FiSearch, FiGlobe, FiShield, FiKey, FiServer, FiToggleLeft, FiToggleRight } from 'react-icons/fi';
 import { motion } from 'framer-motion';
+
+// Helper components defined OUTSIDE the main component to prevent recreation on every render
+const SettingCard = ({ children, title, description, icon: Icon, status }) => (
+    <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {Icon && (
+                    <div style={{ padding: '0.625rem', background: 'rgba(16, 163, 127, 0.1)', borderRadius: '0.5rem', color: 'var(--primary)' }}>
+                        <Icon size={18} />
+                    </div>
+                )}
+                <div>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--text-main)', marginBottom: '0.125rem' }}>{title}</h3>
+                    {description && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{description}</p>}
+                </div>
+            </div>
+            {status && (
+                <span style={{
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '1rem',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                    textTransform: 'uppercase',
+                    background: status === 'connected' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(107, 114, 128, 0.15)',
+                    color: status === 'connected' ? '#22c55e' : 'var(--text-muted)',
+                    border: `1px solid ${status === 'connected' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(107, 114, 128, 0.3)'}`
+                }}>
+                    {status === 'connected' ? 'Connected' : 'Not Configured'}
+                </span>
+            )}
+        </div>
+        {children}
+    </div>
+);
+
+const InputField = ({ label, type = 'text', placeholder, defaultValue, disabled, style }) => (
+    <div style={{ marginBottom: '1rem', ...style }}>
+        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>{label}</label>
+        <input
+            type={type}
+            placeholder={placeholder}
+            defaultValue={defaultValue}
+            disabled={disabled}
+            className="input-field"
+            style={{
+                opacity: disabled ? 0.5 : 1,
+                cursor: disabled ? 'not-allowed' : 'text'
+            }}
+        />
+    </div>
+);
+
+const SelectField = ({ label, options, defaultValue }) => (
+    <div style={{ marginBottom: '1rem' }}>
+        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>{label}</label>
+        <select
+            defaultValue={defaultValue}
+            style={{
+                width: '100%',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--border-main)',
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-main)',
+                outline: 'none',
+                fontSize: '0.875rem',
+                cursor: 'pointer'
+            }}
+        >
+            {options.map((opt, i) => (
+                <option key={i} value={opt.value || opt} style={{ background: 'var(--bg-panel)', color: 'var(--text-main)' }}>
+                    {opt.label || opt}
+                </option>
+            ))}
+        </select>
+    </div>
+);
+
+const Toggle = ({ enabled, onChange }) => (
+    <button
+        onClick={onChange}
+        type="button"
+        style={{
+            width: '44px',
+            height: '24px',
+            borderRadius: '12px',
+            background: enabled ? 'var(--primary)' : 'var(--bg-subtle)',
+            border: `1px solid ${enabled ? 'var(--primary)' : 'var(--border-main)'}`,
+            position: 'relative',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+        }}
+    >
+        <div style={{
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            background: 'white',
+            position: 'absolute',
+            top: '2px',
+            left: enabled ? '22px' : '2px',
+            transition: 'left 0.2s',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+        }} />
+    </button>
+);
 
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('general');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
+
+    // FTP Configuration State
+    const [ftpConfig, setFtpConfig] = useState({
+        host: '',
+        port: 21,
+        path: '/',
+        username: '',
+        password: '',
+        passiveMode: true
+    });
+    const [ftpStatus, setFtpStatus] = useState(null); // 'connected' | 'not_configured'
 
     const tabs = [
         { id: 'general', label: 'General', icon: FiUser },
@@ -13,6 +130,28 @@ const Settings = () => {
         { id: 'llm', label: 'LLM & AI', icon: FiCpu },
         { id: 'security', label: 'Security', icon: FiShield },
     ];
+
+    // Load FTP config on mount
+    useEffect(() => {
+        const loadFtpConfig = async () => {
+            try {
+                const token = localStorage.getItem('senfo-jwt');
+                const res = await fetch('/api/settings/ftp', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        setFtpConfig(prev => ({ ...prev, ...data }));
+                        setFtpStatus('connected');
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load FTP config:', err);
+            }
+        };
+        loadFtpConfig();
+    }, []);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -24,6 +163,31 @@ const Settings = () => {
         setTimeout(() => setSaveSuccess(false), 3000);
     };
 
+    const handleSaveFtp = async () => {
+        setIsSaving(true);
+        setSaveSuccess(false);
+        try {
+            const token = localStorage.getItem('senfo-jwt');
+            const res = await fetch('/api/settings/ftp', {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(ftpConfig)
+            });
+            if (res.ok) {
+                setFtpStatus('connected');
+                setSaveSuccess(true);
+                setTimeout(() => setSaveSuccess(false), 3000);
+            }
+        } catch (err) {
+            console.error('Failed to save FTP config:', err);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const container = {
         hidden: { opacity: 0 },
         show: { opacity: 1, transition: { staggerChildren: 0.05 } }
@@ -33,110 +197,6 @@ const Settings = () => {
         hidden: { opacity: 0, y: 10 },
         show: { opacity: 1, y: 0 }
     };
-
-    const SettingCard = ({ children, title, description, icon: Icon, status }) => (
-        <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    {Icon && (
-                        <div style={{ padding: '0.625rem', background: 'rgba(16, 163, 127, 0.1)', borderRadius: '0.5rem', color: 'var(--primary)' }}>
-                            <Icon size={18} />
-                        </div>
-                    )}
-                    <div>
-                        <h3 style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--text-main)', marginBottom: '0.125rem' }}>{title}</h3>
-                        {description && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{description}</p>}
-                    </div>
-                </div>
-                {status && (
-                    <span style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.7rem',
-                        fontWeight: '600',
-                        textTransform: 'uppercase',
-                        background: status === 'connected' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(107, 114, 128, 0.15)',
-                        color: status === 'connected' ? '#22c55e' : 'var(--text-muted)',
-                        border: `1px solid ${status === 'connected' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(107, 114, 128, 0.3)'}`
-                    }}>
-                        {status === 'connected' ? 'Connected' : 'Not Configured'}
-                    </span>
-                )}
-            </div>
-            {children}
-        </div>
-    );
-
-    const InputField = ({ label, type = 'text', placeholder, defaultValue, disabled, style }) => (
-        <div style={{ marginBottom: '1rem', ...style }}>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>{label}</label>
-            <input
-                type={type}
-                placeholder={placeholder}
-                defaultValue={defaultValue}
-                disabled={disabled}
-                className="input-field"
-                style={{
-                    opacity: disabled ? 0.5 : 1,
-                    cursor: disabled ? 'not-allowed' : 'text'
-                }}
-            />
-        </div>
-    );
-
-    const SelectField = ({ label, options, defaultValue }) => (
-        <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>{label}</label>
-            <select
-                defaultValue={defaultValue}
-                style={{
-                    width: '100%',
-                    background: 'var(--bg-subtle)',
-                    border: '1px solid var(--border-main)',
-                    padding: '0.75rem 1rem',
-                    borderRadius: 'var(--radius-md)',
-                    color: 'var(--text-main)',
-                    outline: 'none',
-                    fontSize: '0.875rem',
-                    cursor: 'pointer'
-                }}
-            >
-                {options.map((opt, i) => (
-                    <option key={i} value={opt.value || opt} style={{ background: 'var(--bg-panel)', color: 'var(--text-main)' }}>
-                        {opt.label || opt}
-                    </option>
-                ))}
-            </select>
-        </div>
-    );
-
-    const Toggle = ({ enabled, onChange }) => (
-        <button
-            onClick={onChange}
-            style={{
-                width: '44px',
-                height: '24px',
-                borderRadius: '12px',
-                background: enabled ? 'var(--primary)' : 'var(--bg-subtle)',
-                border: `1px solid ${enabled ? 'var(--primary)' : 'var(--border-main)'}`,
-                position: 'relative',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-            }}
-        >
-            <div style={{
-                width: '18px',
-                height: '18px',
-                borderRadius: '50%',
-                background: 'white',
-                position: 'absolute',
-                top: '2px',
-                left: enabled ? '22px' : '2px',
-                transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-            }} />
-        </button>
-    );
 
     return (
         <motion.div
@@ -220,10 +280,10 @@ const Settings = () => {
                             <SettingCard title="Organization" description="Your organization settings" icon={FiGlobe}>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                                     <InputField label="Organization Name" defaultValue="Senfo AI" />
-                                    <SelectField 
-                                        label="Auth Mode" 
-                                        options={['SSO_MANAGED', 'IAM_GROUPS', 'HYBRID']} 
-                                        defaultValue="SSO_MANAGED" 
+                                    <SelectField
+                                        label="Auth Mode"
+                                        options={['SSO_MANAGED', 'IAM_GROUPS', 'HYBRID']}
+                                        defaultValue="SSO_MANAGED"
                                     />
                                 </div>
                             </SettingCard>
@@ -255,16 +315,79 @@ const Settings = () => {
                             </SettingCard>
 
                             <SettingCard title="Vector Store" description="Embeddings storage for semantic search" icon={FiServer}>
-                                <SelectField 
-                                    label="Provider" 
-                                    options={['Pinecone', 'Weaviate', 'Qdrant', 'Milvus']} 
-                                    defaultValue="Pinecone" 
+                                <SelectField
+                                    label="Provider"
+                                    options={['Pinecone', 'Weaviate', 'Qdrant', 'Milvus']}
+                                    defaultValue="Pinecone"
                                 />
                                 <InputField label="API Key" type="password" placeholder="Enter API key" />
                             </SettingCard>
 
+                            <SettingCard title="FTP Configuration" description="Legacy file transfer for external integrations" icon={FiServer} status={ftpStatus}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+                                    <div style={{ marginBottom: 0 }}>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>Host</label>
+                                        <input
+                                            type="text"
+                                            placeholder="ftp.example.com"
+                                            value={ftpConfig.host}
+                                            onChange={(e) => setFtpConfig(prev => ({ ...prev, host: e.target.value }))}
+                                            className="input-field"
+                                        />
+                                    </div>
+                                    <div style={{ marginBottom: 0 }}>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>Port</label>
+                                        <input
+                                            type="number"
+                                            value={ftpConfig.port}
+                                            onChange={(e) => setFtpConfig(prev => ({ ...prev, port: parseInt(e.target.value) || 21 }))}
+                                            className="input-field"
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                                    <div style={{ marginBottom: 0 }}>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>Username</label>
+                                        <input
+                                            type="text"
+                                            placeholder="ftp_user"
+                                            value={ftpConfig.username}
+                                            onChange={(e) => setFtpConfig(prev => ({ ...prev, username: e.target.value }))}
+                                            className="input-field"
+                                        />
+                                    </div>
+                                    <div style={{ marginBottom: 0 }}>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>Password</label>
+                                        <input
+                                            type="password"
+                                            placeholder="••••••"
+                                            value={ftpConfig.password}
+                                            onChange={(e) => setFtpConfig(prev => ({ ...prev, password: e.target.value }))}
+                                            className="input-field"
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ marginTop: '1rem' }}>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 500 }}>Base Path</label>
+                                    <input
+                                        type="text"
+                                        placeholder="/data/imports"
+                                        value={ftpConfig.path}
+                                        onChange={(e) => setFtpConfig(prev => ({ ...prev, path: e.target.value }))}
+                                        className="input-field"
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', marginTop: '1rem' }}>
+                                    <div>
+                                        <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>Enable Passive Mode</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use passive FTP for firewall compatibility</div>
+                                    </div>
+                                    <Toggle enabled={ftpConfig.passiveMode} onChange={() => setFtpConfig(prev => ({ ...prev, passiveMode: !prev.passiveMode }))} />
+                                </div>
+                            </SettingCard>
+
                             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-                                <button className="primary-btn" onClick={handleSave} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <button className="primary-btn" onClick={handleSaveFtp} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                     <FiSave size={16} /> {isSaving ? 'Saving...' : 'Save Changes'}
                                 </button>
                             </div>
@@ -274,20 +397,20 @@ const Settings = () => {
                     {activeTab === 'llm' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
                             <SettingCard title="AI Provider Configuration" description="Configure your language model settings" icon={FiCpu}>
-                                <SelectField 
-                                    label="Default Provider" 
-                                    options={['OpenAI', 'Anthropic', 'Google AI', 'Azure OpenAI', 'Ollama (Local)']} 
-                                    defaultValue="OpenAI" 
+                                <SelectField
+                                    label="Default Provider"
+                                    options={['OpenAI', 'Anthropic', 'Google AI', 'Azure OpenAI', 'Ollama (Local)']}
+                                    defaultValue="OpenAI"
                                 />
                                 <InputField label="API Key" type="password" placeholder="sk-..." />
                                 <InputField label="Model Name" defaultValue="gpt-4o" />
                             </SettingCard>
 
                             <SettingCard title="Embedding Model" description="Model used for code embeddings" icon={FiCpu}>
-                                <SelectField 
-                                    label="Embedding Provider" 
-                                    options={['OpenAI', 'Cohere', 'Voyage AI', 'Local']} 
-                                    defaultValue="OpenAI" 
+                                <SelectField
+                                    label="Embedding Provider"
+                                    options={['OpenAI', 'Cohere', 'Voyage AI', 'Local']}
+                                    defaultValue="OpenAI"
                                 />
                                 <InputField label="Model" defaultValue="text-embedding-3-large" />
                             </SettingCard>
@@ -310,10 +433,10 @@ const Settings = () => {
                     {activeTab === 'security' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
                             <SettingCard title="Authentication" description="SSO and identity provider settings" icon={FiShield}>
-                                <SelectField 
-                                    label="Identity Provider" 
-                                    options={['Google', 'Microsoft Entra ID', 'Okta', 'Auth0', 'LDAP']} 
-                                    defaultValue="Google" 
+                                <SelectField
+                                    label="Identity Provider"
+                                    options={['Google', 'Microsoft Entra ID', 'Okta', 'Auth0', 'LDAP']}
+                                    defaultValue="Google"
                                 />
                                 <InputField label="Client ID" placeholder="Enter OAuth client ID" />
                                 <InputField label="Client Secret" type="password" placeholder="Enter OAuth client secret" />
@@ -333,21 +456,21 @@ const Settings = () => {
                                             <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>Require 2FA for Superusers</div>
                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Enforce two-factor authentication</div>
                                         </div>
-                                        <Toggle enabled={true} onChange={() => {}} />
+                                        <Toggle enabled={true} onChange={() => { }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)' }}>
                                         <div>
                                             <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>Audit All API Calls</div>
                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Log all API requests for compliance</div>
                                         </div>
-                                        <Toggle enabled={true} onChange={() => {}} />
+                                        <Toggle enabled={true} onChange={() => { }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)' }}>
                                         <div>
                                             <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>IP Allowlist</div>
                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Restrict access by IP address</div>
                                         </div>
-                                        <Toggle enabled={false} onChange={() => {}} />
+                                        <Toggle enabled={false} onChange={() => { }} />
                                     </div>
                                 </div>
                             </SettingCard>

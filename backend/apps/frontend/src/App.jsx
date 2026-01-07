@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
+import { ToastProvider } from './components/Toast';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import DashboardLayout from './layouts/DashboardLayout';
@@ -25,71 +26,73 @@ import AuthCallback from './pages/AuthCallback';
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<Dashboard />} />
+      <ToastProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<Dashboard />} />
 
-            {/* Super User Routes */}
-            <Route path="super" element={
-              <RoleGuard requiredRoles={['SUPER_USER']}>
-                <SuperDashboard />
-              </RoleGuard>
-            } />
-            <Route path="super/namespaces" element={
-              <RoleGuard requiredRoles={['SUPER_USER']}>
-                <GlobalNamespaces />
-              </RoleGuard>
-            } />
-            <Route path="super/users" element={
-              <RoleGuard requiredRoles={['SUPER_USER']}>
-                <AllUsers />
-              </RoleGuard>
-            } />
-            <Route path="super/audit" element={
-              <RoleGuard requiredRoles={['SUPER_USER']}>
-                <AuditLogs />
-              </RoleGuard>
-            } />
-            <Route path="super/repos" element={
-              <RoleGuard requiredRoles={['SUPER_USER']}>
-                <SuperRepositories />
-              </RoleGuard>
-            } />
-            <Route path="super/approvals" element={
-              <RoleGuard requiredRoles={['SUPER_USER']}>
-                <ApprovalRequests />
-              </RoleGuard>
-            } />
+              {/* Super User Routes */}
+              <Route path="super" element={
+                <RoleGuard requiredRoles={['SUPER_USER']}>
+                  <SuperDashboard />
+                </RoleGuard>
+              } />
+              <Route path="super/namespaces" element={
+                <RoleGuard requiredRoles={['SUPER_USER']}>
+                  <GlobalNamespaces />
+                </RoleGuard>
+              } />
+              <Route path="super/users" element={
+                <RoleGuard requiredRoles={['SUPER_USER']}>
+                  <AllUsers />
+                </RoleGuard>
+              } />
+              <Route path="super/audit" element={
+                <RoleGuard requiredRoles={['SUPER_USER']}>
+                  <AuditLogs />
+                </RoleGuard>
+              } />
+              <Route path="super/repos" element={
+                <RoleGuard requiredRoles={['SUPER_USER']}>
+                  <SuperRepositories />
+                </RoleGuard>
+              } />
+              <Route path="super/approvals" element={
+                <RoleGuard requiredRoles={['SUPER_USER']}>
+                  <ApprovalRequests />
+                </RoleGuard>
+              } />
 
-            {/* Admin Routes */}
-            <Route path="admin" element={
-              <RoleGuard requiredRoles={['ADMIN']}>
-                <AdminDashboard />
-              </RoleGuard>
-            } />
-            <Route path="admin/users" element={
-              <RoleGuard requiredRoles={['ADMIN']}>
-                <AdminUsers />
-              </RoleGuard>
-            } />
-            <Route path="admin/repos" element={
-              <RoleGuard requiredRoles={['ADMIN']}>
-                <AdminRepositories />
-              </RoleGuard>
-            } />
+              {/* Admin Routes */}
+              <Route path="admin" element={
+                <RoleGuard requiredRoles={['ADMIN']}>
+                  <AdminDashboard />
+                </RoleGuard>
+              } />
+              <Route path="admin/users" element={
+                <RoleGuard requiredRoles={['ADMIN']}>
+                  <AdminUsers />
+                </RoleGuard>
+              } />
+              <Route path="admin/repos" element={
+                <RoleGuard requiredRoles={['ADMIN']}>
+                  <AdminRepositories />
+                </RoleGuard>
+              } />
 
-            {/* Shared/Common Routes */}
-            {/* These might need guarding too, defaulting to allowing all logged in users for now */}
-            <Route path="chat" element={<RoleGuard requiredRoles={['USER', 'ADMIN', 'SUPER_USER']}><Chat /></RoleGuard>} />
-            <Route path="data-sources" element={<RoleGuard requiredRoles={['USER', 'ADMIN', 'SUPER_USER']}><DataSource /></RoleGuard>} />
-            <Route path="settings" element={<RoleGuard requiredRoles={['USER', 'ADMIN', 'SUPER_USER']}><Settings /></RoleGuard>} />
-            <Route path="team" element={<RoleGuard requiredRoles={['ADMIN', 'SUPER_USER']}><Team /></RoleGuard>} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+              {/* Shared/Common Routes */}
+              {/* These might need guarding too, defaulting to allowing all logged in users for now */}
+              <Route path="chat" element={<RoleGuard requiredRoles={['USER', 'ADMIN', 'SUPER_USER']}><Chat /></RoleGuard>} />
+              <Route path="data-sources" element={<RoleGuard requiredRoles={['USER', 'ADMIN', 'SUPER_USER']}><DataSource /></RoleGuard>} />
+              <Route path="settings" element={<RoleGuard requiredRoles={['USER', 'ADMIN', 'SUPER_USER']}><Settings /></RoleGuard>} />
+              <Route path="team" element={<RoleGuard requiredRoles={['ADMIN', 'SUPER_USER']}><Team /></RoleGuard>} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

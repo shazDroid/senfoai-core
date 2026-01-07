@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from './Toast';
 
 const LoginForm = () => {
     const [email, setEmail] = useState('');
@@ -8,6 +9,7 @@ const LoginForm = () => {
     const [isEnterprise, setIsEnterprise] = useState(false);
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const toast = useToast();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -31,11 +33,11 @@ const LoginForm = () => {
                 // Success
                 window.location.href = `/auth/callback?token=${data.access_token}`;
             } else {
-                alert('Login Failed: ' + (data.message || 'Unknown error'));
+                toast.error('Login Failed', data.message || 'Unknown error');
             }
         } catch (err) {
             console.error(err);
-            alert('Login Error');
+            toast.error('Login Error', 'An unexpected error occurred. Please try again.');
         } finally {
             setLoading(false);
         }

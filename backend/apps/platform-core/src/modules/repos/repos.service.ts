@@ -1,10 +1,13 @@
 // apps/platform-core/src/modules/repos/repos.service.ts
 // Repository management service
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { GitProviderFactory } from './git-providers/provider.factory';
 import { SyncService } from './sync/sync.service';
+import { IndexerService } from '../indexer/indexer.service';
+import { Neo4jWriterService } from '../indexer/neo4j-writer.service';
+import { RepoCheckoutService } from '../indexer/repo-checkout.service';
 import {
     CreateRepositoryDto,
     UpdateRepositoryDto,
@@ -19,7 +22,13 @@ export class ReposService {
 
     constructor(
         private readonly providerFactory: GitProviderFactory,
-        private readonly syncService: SyncService
+        private readonly syncService: SyncService,
+        @Inject(forwardRef(() => IndexerService))
+        private readonly indexerService: IndexerService,
+        @Inject(forwardRef(() => Neo4jWriterService))
+        private readonly neo4jWriter: Neo4jWriterService,
+        @Inject(forwardRef(() => RepoCheckoutService))
+        private readonly checkoutService: RepoCheckoutService
     ) { }
 
     /**
@@ -65,6 +74,17 @@ export class ReposService {
         userId: string,
         dto: CreateRepositoryDto
     ): Promise<any> {
+        // Check if FTP is configured before allowing import
+        const ftpConfig = await this.prisma.ftpLocation.findFirst({
+            where: { orgId, isActive: true }
+        });
+
+        if (!ftpConfig) {
+            throw new BadRequestException(
+                'FTP configuration is required before importing repositories. Please configure FTP in Settings → Databases & Graph → FTP Configuration.'
+            );
+        }
+
         // Auto-detect branch if not specified
         let defaultBranch = dto.defaultBranch;
         if (!defaultBranch || defaultBranch === 'auto') {
@@ -97,7 +117,6 @@ export class ReposService {
                 defaultBranch,
                 addedById: userId,
                 scanStatus: 'PENDING',
-                // @ts-ignore - will add these fields in schema update
                 realtimeSyncEnabled: dto.realtimeSyncEnabled || false,
                 syncIntervalMinutes: dto.syncIntervalMinutes || 5
             }
@@ -113,6 +132,11 @@ export class ReposService {
                 }
             });
         }
+
+        // Trigger indexing in background (Phase-1: checkout, parse, Neo4j graph)
+        this.indexerService.runIndex(repo.id, { force: true }).catch(err => {
+            this.logger.error(`Initial indexing failed for ${repo.id}:`, err);
+        });
 
         // If realtime sync enabled, trigger initial sync
         if (dto.realtimeSyncEnabled) {
@@ -268,14 +292,34 @@ export class ReposService {
             throw new NotFoundException('Repository not found');
         }
 
-        // Delete namespace associations first
+        this.logger.log(`Deleting repository ${repoId} and all related data...`);
+
+        // 1. Delete from Neo4j graph
+        try {
+            await this.neo4jWriter.deleteRepo(repoId);
+            this.logger.log(`Deleted Neo4j graph for repo ${repoId}`);
+        } catch (err: any) {
+            this.logger.warn(`Failed to delete Neo4j graph: ${err.message}`);
+        }
+
+        // 2. Delete local files (also removes Zoekt index since it watches the folder)
+        try {
+            await this.checkoutService.deleteCheckout(repoId);
+            this.logger.log(`Deleted local files for repo ${repoId}`);
+        } catch (err: any) {
+            this.logger.warn(`Failed to delete local files: ${err.message}`);
+        }
+
+        // 3. Delete namespace associations
         await this.prisma.repositoryNamespace.deleteMany({
             where: { repositoryId: repoId }
         });
 
-        // Delete repository
+        // 4. Delete repository record
         await this.prisma.repository.delete({
             where: { id: repoId }
         });
+
+        this.logger.log(`Repository ${repoId} and all related data deleted successfully`);
     }
 }

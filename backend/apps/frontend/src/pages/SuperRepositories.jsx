@@ -8,9 +8,11 @@ import {
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { debugLog } from '../utils/debugLog';
+import { useToast } from '../components/Toast';
 
 const SuperRepositories = () => {
     const navigate = useNavigate();
+    const toast = useToast();
     const [repositories, setRepositories] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -27,6 +29,20 @@ const SuperRepositories = () => {
         fetchRepositories();
         fetchNamespaces();
     }, []);
+
+    // Auto-poll when any repo is actively indexing
+    useEffect(() => {
+        const activeStatuses = ['CLONING', 'UPLOADING_TO_FTP', 'SCANNING_NAMESPACES', 'PARSING_FILES', 'GENERATING_GRAPH', 'INDEXING', 'SCANNING'];
+        const hasActiveRepo = repositories.some(r => activeStatuses.includes(r.scanStatus?.toUpperCase()));
+
+        if (hasActiveRepo) {
+            const interval = setInterval(() => {
+                handleRefresh();
+            }, 3000); // Poll every 3 seconds
+
+            return () => clearInterval(interval);
+        }
+    }, [repositories]);
 
     // Wrapper function to ensure refresh works properly
     const handleRefresh = async () => {
@@ -53,7 +69,11 @@ const SuperRepositories = () => {
                     framework: detectFramework(repo.name, repo.gitUrl),
                     fileCount: Math.floor(Math.random() * 5000) + 100, // Mock
                     version: '1.0.0', // Mock
-                    scanStatus: repo.scanStatus || 'PENDING' // Ensure scanStatus exists
+                    scanStatus: repo.scanStatus || 'PENDING', // Ensure scanStatus exists
+                    // Preserve progress info if available
+                    progress: repo.progress,
+                    currentStep: repo.currentStep,
+                    details: repo.details
                 })));
             } else {
                 const errorData = await res.json().catch(() => ({}));
@@ -117,7 +137,11 @@ const SuperRepositories = () => {
                     framework: detectFramework(repo.name, repo.gitUrl),
                     fileCount: Math.floor(Math.random() * 5000) + 100, // Mock
                     version: '1.0.0', // Mock
-                    scanStatus: repo.scanStatus || 'PENDING' // Ensure scanStatus exists
+                    scanStatus: repo.scanStatus || 'PENDING', // Ensure scanStatus exists
+                    // Preserve progress info if available
+                    progress: repo.progress,
+                    currentStep: repo.currentStep,
+                    details: repo.details
                 })));
             } else {
                 const errorData = await res.json().catch(() => ({}));
@@ -232,7 +256,7 @@ const SuperRepositories = () => {
             }
         } catch (err) {
             debugLog('Toggle sync error:', err);
-            alert(err.message || 'Failed to toggle sync');
+            toast.error('Sync Toggle Failed', err.message || 'Failed to toggle sync');
         }
     };
 
@@ -250,9 +274,9 @@ const SuperRepositories = () => {
             if (res.ok) {
                 const data = await res.json();
                 if (data.hasNewCommits) {
-                    alert(`Synced! Found new commits. Latest: ${data.latestSha?.substring(0, 7)}`);
+                    toast.success('Sync Complete', `Found new commits. Latest: ${data.latestSha?.substring(0, 7)}`);
                 } else {
-                    alert('Repository is up to date. No new commits.');
+                    toast.info('Already Up to Date', 'Repository is up to date. No new commits.');
                 }
                 await fetchRepositories();
             } else {
@@ -261,7 +285,66 @@ const SuperRepositories = () => {
             }
         } catch (err) {
             debugLog('Sync now error:', err);
-            alert(err.message || 'Failed to sync repository');
+            toast.error('Sync Failed', err.message || 'Failed to sync repository');
+        }
+    };
+
+    // Start import/indexing for a repository
+    const handleStartImport = async (repoId) => {
+        let pollInterval;
+        try {
+            const token = localStorage.getItem('senfo-jwt');
+
+            // Start polling for progress updates
+            pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`/api/repos/${repoId}/index/status`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (statusRes.ok) {
+                        const statusData = await statusRes.json();
+                        // Update local state to reflect progress immediately with detailed info
+                        setRepositories(prevRepos => prevRepos.map(r =>
+                            r.id === repoId ? { 
+                                ...r, 
+                                ...statusData,
+                                // Preserve existing data if new data doesn't have it
+                                progress: statusData.progress !== undefined ? statusData.progress : r.progress,
+                                currentStep: statusData.currentStep || r.currentStep,
+                                details: statusData.details || r.details
+                            } : r
+                        ));
+                    }
+                } catch (e) {
+                    // Ignore polling errors
+                }
+            }, 1000);
+
+            const res = await fetch(`/api/repos/${repoId}/index/run`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // Stop polling once request completes
+            if (pollInterval) clearInterval(pollInterval);
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'Failed to start import');
+            }
+
+            toast.success('Import Complete', 'Repository imported successfully');
+            // Final refresh
+            await fetchRepositories();
+        } catch (err) {
+            if (pollInterval) clearInterval(pollInterval);
+            debugLog('Start import error:', err);
+            toast.error('Import Failed', err.message || 'Failed to start import');
+            // Refresh to show error state
+            await fetchRepositories();
         }
     };
 
@@ -277,7 +360,7 @@ const SuperRepositories = () => {
                 }
             });
             if (res.ok) {
-                alert('Repository deleted successfully.');
+                toast.success('Repository Deleted', 'Repository deleted successfully.');
                 await fetchRepositories();
             } else {
                 const err = await res.json().catch(() => ({}));
@@ -285,7 +368,7 @@ const SuperRepositories = () => {
             }
         } catch (err) {
             debugLog('Delete error:', err);
-            alert(err.message || 'Failed to delete repository');
+            toast.error('Deletion Failed', err.message || 'Failed to delete repository');
         }
     };
 
@@ -304,7 +387,7 @@ const SuperRepositories = () => {
                 }
             });
             if (res.ok) {
-                alert('Deletion approved. Repository has been deleted.');
+                toast.success('Deletion Approved', 'Repository has been deleted.');
                 await fetchRepositories();
             } else {
                 const err = await res.json().catch(() => ({}));
@@ -312,7 +395,7 @@ const SuperRepositories = () => {
             }
         } catch (err) {
             debugLog('Approve delete error:', err);
-            alert(err.message || 'Failed to approve deletion');
+            toast.error('Approval Failed', err.message || 'Failed to approve deletion');
         }
     };
 
@@ -328,7 +411,7 @@ const SuperRepositories = () => {
                 }
             });
             if (res.ok) {
-                alert('Deletion request rejected.');
+                toast.info('Deletion Rejected', 'Deletion request rejected.');
                 await fetchRepositories();
             } else {
                 const err = await res.json().catch(() => ({}));
@@ -336,7 +419,7 @@ const SuperRepositories = () => {
             }
         } catch (err) {
             debugLog('Reject delete error:', err);
-            alert(err.message || 'Failed to reject deletion');
+            toast.error('Rejection Failed', err.message || 'Failed to reject deletion');
         }
     };
 
@@ -689,6 +772,7 @@ const SuperRepositories = () => {
                                 onDelete={handleDelete}
                                 onApproveDelete={handleApproveDelete}
                                 onRejectDelete={handleRejectDelete}
+                                onStartImport={handleStartImport}
                             />
                         ))}
                     </motion.div>
@@ -762,6 +846,7 @@ const SuperRepositories = () => {
                                                     setEditingRepo(repo);
                                                     setShowEditNamespacesModal(true);
                                                 }}
+                                                onStartImport={handleStartImport}
                                             />
                                         ))}
                                     </tbody>
@@ -881,7 +966,7 @@ const SuperRepositories = () => {
                             await fetchRepositories();
                         } catch (err) {
                             debugLog('Failed to update repository namespaces:', err);
-                            alert(err.message || 'Failed to update namespaces');
+                            toast.error('Update Failed', err.message || 'Failed to update namespaces');
                         }
                     }}
                 />
@@ -891,11 +976,27 @@ const SuperRepositories = () => {
 };
 
 // Repository Card Component (Grid View)
-const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyncNow, onDelete, onApproveDelete, onRejectDelete }) => {
+const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyncNow, onDelete, onApproveDelete, onRejectDelete, onStartImport }) => {
     const [showMenu, setShowMenu] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [isTogglingSync, setIsTogglingSync] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [deleteStage, setDeleteStage] = useState('');
+
+    const handleStartImport = async () => {
+        if (!onStartImport) return;
+        setIsImporting(true);
+        try {
+            await onStartImport(repo.id);
+            if (onRefresh) await onRefresh();
+        } catch (err) {
+            console.error('Start import error:', err);
+        } finally {
+            setIsImporting(false);
+        }
+    };
 
     // Get namespaces from repo (handle both old and new format)
     const repoNamespaces = repo.namespaces || (repo.namespace ? [repo.namespace] : []);
@@ -909,9 +1010,16 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyn
     const getStatusColor = (status) => {
         switch (status?.toUpperCase()) {
             case 'COMPLETED': return '#22c55e';
+            case 'CLONING':
+            case 'UPLOADING_TO_FTP':
+            case 'SCANNING_NAMESPACES':
+            case 'PARSING_FILES':
+            case 'GENERATING_GRAPH':
+            case 'INDEXING':
             case 'SCANNING': return '#3b82f6';
             case 'PENDING': return '#f59e0b';
-            case 'FAILED': return '#ef4444';
+            case 'FAILED':
+            case 'ERROR': return '#ef4444';
             default: return '#6b7280';
         }
     };
@@ -919,9 +1027,16 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyn
     const getStatusBg = (status) => {
         switch (status?.toUpperCase()) {
             case 'COMPLETED': return 'rgba(34, 197, 94, 0.1)';
+            case 'CLONING':
+            case 'UPLOADING_TO_FTP':
+            case 'SCANNING_NAMESPACES':
+            case 'PARSING_FILES':
+            case 'GENERATING_GRAPH':
+            case 'INDEXING':
             case 'SCANNING': return 'rgba(59, 130, 246, 0.1)';
             case 'PENDING': return 'rgba(245, 158, 11, 0.1)';
-            case 'FAILED': return 'rgba(239, 68, 68, 0.1)';
+            case 'FAILED':
+            case 'ERROR': return 'rgba(239, 68, 68, 0.1)';
             default: return 'rgba(107, 114, 128, 0.1)';
         }
     };
@@ -929,9 +1044,16 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyn
     const getStatusIcon = (status) => {
         switch (status?.toUpperCase()) {
             case 'COMPLETED': return <FiCheckCircle size={14} />;
+            case 'CLONING':
+            case 'UPLOADING_TO_FTP':
+            case 'SCANNING_NAMESPACES':
+            case 'PARSING_FILES':
+            case 'GENERATING_GRAPH':
+            case 'INDEXING':
             case 'SCANNING': return <FiRefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />;
             case 'PENDING': return <FiClock size={14} />;
-            case 'FAILED': return <FiXCircle size={14} />;
+            case 'FAILED':
+            case 'ERROR': return <FiXCircle size={14} />;
             default: return <FiCircle size={14} />;
         }
     };
@@ -939,11 +1061,36 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyn
     const getStatusLabel = (status) => {
         switch (status?.toUpperCase()) {
             case 'COMPLETED': return 'Completed';
-            case 'SCANNING': return 'Scanning';
+            case 'CLONING': return 'Cloning Repository...';
+            case 'UPLOADING_TO_FTP': return 'Uploading to FTP...';
+            case 'SCANNING_NAMESPACES': return 'Detecting Modules...';
+            case 'PARSING_FILES': return 'Parsing Source Code...';
+            case 'GENERATING_GRAPH': return 'Building Knowledge Graph...';
+            case 'INDEXING': return 'Indexing...';
+            case 'SCANNING': return 'Scanning...';
             case 'PENDING': return 'Pending';
-            case 'FAILED': return 'Failed';
+            case 'FAILED':
+            case 'ERROR': return 'Failed';
             default: return status || 'Pending';
         }
+    };
+
+    const getProgress = (status) => {
+        switch (status?.toUpperCase()) {
+            case 'PENDING': return 0;
+            case 'CLONING': return 15;
+            case 'UPLOADING_TO_FTP': return 30;
+            case 'SCANNING_NAMESPACES': return 45;
+            case 'PARSING_FILES': return 60;
+            case 'GENERATING_GRAPH': return 80;
+            case 'INDEXING': return 90;
+            case 'COMPLETED': return 100;
+            default: return 0;
+        }
+    };
+
+    const isActiveStatus = (status) => {
+        return ['CLONING', 'UPLOADING_TO_FTP', 'SCANNING_NAMESPACES', 'PARSING_FILES', 'GENERATING_GRAPH', 'INDEXING', 'SCANNING'].includes(status?.toUpperCase());
     };
 
     const handleToggleSync = async () => {
@@ -978,20 +1125,98 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyn
             return;
         }
         setShowMenu(false);
+        setIsDeleting(true);
+
+        // Simulate stages with delays for visual feedback
+        const stages = [
+            { label: 'Removing from graph...', delay: 500 },
+            { label: 'Cleaning local files...', delay: 1000 },
+            { label: 'Deleting records...', delay: 500 }
+        ];
+
         try {
+            // Show stages while actual delete happens
+            let stageIndex = 0;
+            const showStages = setInterval(() => {
+                if (stageIndex < stages.length) {
+                    setDeleteStage(stages[stageIndex].label);
+                    stageIndex++;
+                }
+            }, 800);
+
+            setDeleteStage(stages[0].label);
             await onDelete(repo.id);
+
+            clearInterval(showStages);
+            setDeleteStage('Done!');
+
+            // Refresh after short delay
+            setTimeout(() => {
+                if (onRefresh) onRefresh();
+            }, 300);
         } catch (err) {
             debugLog('Delete error:', err);
+            setDeleteStage('Error deleting');
+            setTimeout(() => {
+                setIsDeleting(false);
+                setDeleteStage('');
+            }, 2000);
         }
     };
 
     return (
         <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+            animate={{ opacity: isDeleting ? 0.7 : 1, scale: isDeleting ? 0.98 : 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             className="glass-panel"
-            style={{ padding: '1.5rem', position: 'relative' }}
+            style={{ padding: '1.5rem', position: 'relative', overflow: 'hidden' }}
         >
+            {/* Deleting Overlay */}
+            {isDeleting && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(239, 68, 68, 0.9)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 20,
+                        borderRadius: 'inherit',
+                        gap: '0.75rem'
+                    }}
+                >
+                    <FiTrash2 size={24} style={{ color: '#fff' }} />
+                    <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.9rem' }}>Deleting Repository</span>
+                    <div style={{ width: '60%', maxWidth: '200px' }}>
+                        <div style={{
+                            height: '4px',
+                            background: 'rgba(255, 255, 255, 0.3)',
+                            borderRadius: '2px',
+                            overflow: 'hidden'
+                        }}>
+                            <motion.div
+                                initial={{ width: '10%' }}
+                                animate={{ width: '100%' }}
+                                transition={{ duration: 2.5, ease: 'easeInOut' }}
+                                style={{
+                                    height: '100%',
+                                    background: '#fff',
+                                    borderRadius: '2px'
+                                }}
+                            />
+                        </div>
+                    </div>
+                    <span style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '0.75rem' }}>{deleteStage}</span>
+                </motion.div>
+            )}
             {/* Pending Deletion Badge with Actions */}
             {repo.pendingDeletion && (
                 <div style={{
@@ -1379,28 +1604,220 @@ const RepositoryCard = ({ repo, onRefresh, onEditNamespaces, onToggleSync, onSyn
                     <FiCalendar size={12} />
                     {formatDate(repo.createdAt)}
                 </div>
-                <div style={{
-                    fontSize: '0.75rem',
-                    padding: '0.375rem 0.75rem',
-                    borderRadius: '0.375rem',
-                    background: getStatusBg(repo.scanStatus),
-                    color: getStatusColor(repo.scanStatus),
-                    fontWeight: 500,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.375rem',
-                    border: `1px solid ${getStatusColor(repo.scanStatus)}40`
-                }}>
-                    {getStatusIcon(repo.scanStatus)}
-                    {getStatusLabel(repo.scanStatus)}
-                </div>
+                {repo.scanStatus?.toUpperCase() === 'PENDING' ? (
+                    <button
+                        onClick={handleStartImport}
+                        disabled={isImporting}
+                        style={{
+                            fontSize: '0.75rem',
+                            padding: '0.375rem 0.75rem',
+                            borderRadius: '0.375rem',
+                            background: isImporting ? 'rgba(59, 130, 246, 0.2)' : 'var(--primary)',
+                            color: isImporting ? 'var(--text-muted)' : '#fff',
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.375rem',
+                            border: 'none',
+                            cursor: isImporting ? 'wait' : 'pointer',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {isImporting ? (
+                            <><FiRefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Starting...</>
+                        ) : (
+                            <><FiUploadCloud size={12} /> Start Import</>
+                        )}
+                    </button>
+                ) : ['FAILED', 'ERROR'].includes(repo.scanStatus?.toUpperCase()) ? (
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{
+                            fontSize: '0.75rem',
+                            padding: '0.375rem 0.75rem',
+                            borderRadius: '0.375rem',
+                            background: getStatusBg(repo.scanStatus),
+                            color: getStatusColor(repo.scanStatus),
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.375rem',
+                            border: `1px solid ${getStatusColor(repo.scanStatus)}40`
+                        }}>
+                            {getStatusIcon(repo.scanStatus)}
+                            {getStatusLabel(repo.scanStatus)}
+                        </div>
+                        <button
+                            onClick={handleStartImport}
+                            disabled={isImporting}
+                            style={{
+                                fontSize: '0.75rem',
+                                padding: '0.375rem 0.75rem',
+                                borderRadius: '0.375rem',
+                                background: 'transparent',
+                                border: '1px solid var(--border-main)',
+                                color: 'var(--text-main)',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.375rem',
+                                cursor: isImporting ? 'wait' : 'pointer',
+                                transition: 'all 0.2s',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'var(--bg-subtle)';
+                                e.currentTarget.style.borderColor = 'var(--text-main)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.borderColor = 'var(--border-main)';
+                            }}
+                        >
+                            <FiRefreshCw size={12} style={isImporting ? { animation: 'spin 1s linear infinite' } : {}} />
+                            Retry
+                        </button>
+                    </div>
+                ) : (
+                    <div style={{
+                        fontSize: '0.75rem',
+                        padding: '0.375rem 0.75rem',
+                        borderRadius: '0.375rem',
+                        background: getStatusBg(repo.scanStatus),
+                        color: getStatusColor(repo.scanStatus),
+                        fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.375rem',
+                        border: `1px solid ${getStatusColor(repo.scanStatus)}40`
+                    }}>
+                        {getStatusIcon(repo.scanStatus)}
+                        {getStatusLabel(repo.scanStatus)}
+                    </div>
+                )}
             </div>
+
+            {/* Progress Section - At the bottom with border */}
+            {isActiveStatus(repo.scanStatus) && (
+                <div style={{
+                    marginTop: '1rem',
+                    paddingTop: '1rem',
+                    borderTop: '1px solid var(--border-subtle)'
+                }}>
+                    <div style={{
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                        borderRadius: '0.5rem',
+                        padding: '0.75rem',
+                        background: 'rgba(59, 130, 246, 0.05)'
+                    }}>
+                        {/* Description/Status Text */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '0.75rem',
+                            gap: '0.5rem'
+                        }}>
+                            <div style={{
+                                fontSize: '0.75rem',
+                                color: '#3b82f6',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.375rem',
+                                flex: 1,
+                                minWidth: 0
+                            }}>
+                                <FiRefreshCw size={12} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                                <span style={{
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                }}>
+                                    {repo.currentStep || getStatusLabel(repo.scanStatus)}
+                                </span>
+                            </div>
+                            <span style={{
+                                fontSize: '0.75rem',
+                                color: 'var(--text-main)',
+                                fontWeight: 600,
+                                flexShrink: 0
+                            }}>
+                                {repo.progress !== undefined ? repo.progress : getProgress(repo.scanStatus)}%
+                            </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div style={{
+                            height: '8px',
+                            background: 'rgba(59, 130, 246, 0.15)',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            marginBottom: repo.details ? '0.75rem' : '0'
+                        }}>
+                            <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${repo.progress !== undefined ? repo.progress : getProgress(repo.scanStatus)}%` }}
+                                transition={{ duration: 0.5, ease: 'easeOut' }}
+                                style={{
+                                    height: '100%',
+                                    background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6)',
+                                    backgroundSize: '200% 100%',
+                                    borderRadius: '4px',
+                                    boxShadow: '0 0 12px rgba(59, 130, 246, 0.6)',
+                                    animation: 'shimmer 2s linear infinite'
+                                }}
+                            />
+                        </div>
+
+                        {/* Detailed Progress Information */}
+                        {repo.details && (
+                            <div style={{
+                                fontSize: '0.7rem',
+                                color: 'var(--text-muted)',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '0.75rem',
+                                lineHeight: '1.5',
+                                paddingTop: '0.5rem',
+                                borderTop: '1px solid rgba(59, 130, 246, 0.2)'
+                            }}>
+                                {repo.details.filesProcessed !== undefined && repo.details.totalFiles !== undefined && (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                        <FiFileText size={11} />
+                                        Files: {repo.details.filesProcessed.toLocaleString()} / {repo.details.totalFiles.toLocaleString()}
+                                    </span>
+                                )}
+                                {repo.details.symbolsExtracted !== undefined && (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                        <FiCode size={11} />
+                                        Symbols: {repo.details.symbolsExtracted.toLocaleString()}
+                                    </span>
+                                )}
+                                {repo.details.namespacesDetected !== undefined && (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                        <FiLayers size={11} />
+                                        Modules: {repo.details.namespacesDetected}
+                                    </span>
+                                )}
+                                {repo.details.filesUploaded !== undefined && (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                        <FiUploadCloud size={11} />
+                                        Uploaded: {repo.details.filesUploaded.toLocaleString()} files
+                                        {repo.details.bytesUploaded !== undefined && (
+                                            <span> ({(repo.details.bytesUploaded / 1024 / 1024).toFixed(2)} MB)</span>
+                                        )}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </motion.div>
     );
 };
 
 // Repository Row Component (List View)
-const RepositoryRow = ({ repo, onRefresh, onEditNamespaces }) => {
+const RepositoryRow = ({ repo, onRefresh, onEditNamespaces, onStartImport }) => {
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Get namespaces from repo (handle both old and new format)
@@ -1544,6 +1961,35 @@ const RepositoryRow = ({ repo, onRefresh, onEditNamespaces }) => {
                     {getStatusIcon(repo.scanStatus)}
                     {getStatusLabel(repo.scanStatus)}
                 </span>
+                {['FAILED', 'ERROR'].includes(repo.scanStatus?.toUpperCase()) && onStartImport && (
+                    <button
+                        onClick={async () => {
+                            setIsRefreshing(true);
+                            try {
+                                await onStartImport(repo.id);
+                                if (onRefresh) await onRefresh();
+                            } finally {
+                                setIsRefreshing(false);
+                            }
+                        }}
+                        disabled={isRefreshing}
+                        title="Retry Import"
+                        style={{
+                            marginLeft: '0.5rem',
+                            padding: '0.25rem',
+                            background: 'transparent',
+                            border: '1px solid var(--border-main)',
+                            borderRadius: '0.25rem',
+                            color: 'var(--text-main)',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            verticalAlign: 'middle'
+                        }}
+                    >
+                        <FiRefreshCw size={12} style={isRefreshing ? { animation: 'spin 1s linear infinite' } : {}} />
+                    </button>
+                )}
             </td>
             <td>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
